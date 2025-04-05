@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography, Button } from '@mui/material';
 
-const LandingPage: React.FC = () => {
+const Home: React.FC = () => {
   return (
     <Box display="flex" flexDirection="column" minHeight="100vh">
       <Box
@@ -32,4 +32,4 @@ const LandingPage: React.FC = () => {
   );
 };
 
-export default LandingPage;
+export default Home;

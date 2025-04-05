@@ -3,10 +3,17 @@ import { Box, Typography } from '@mui/material';
 
 const Footer: React.FC = () => {
   return (
-    <Box display="flex" flexDirection="column" minHeight="100vh">
-        <Typography variant="h3" mb={3}>
-          YourApp@2025
-        </Typography>
+    <Box
+      component="footer"
+      py={2}
+      px={4}
+      bgcolor="#f5f5f5"
+      textAlign="center"
+      mt="auto"
+    >
+      <Typography variant="body2" color="textSecondary">
+        © {new Date().getFullYear()} Eldercare Platform - All rights reserved.
+      </Typography>
     </Box>
   );
 };
