@@ -1,0 +1,38 @@
+Puskesmas (Collection)
+
+- _id (Object Id) - Autogen
+- puskesmasName (Required)
+- puskesmasLocation (Gmaps link)
+- puskesmasLong
+- puskesmasLat
+- puskesmasOpenHour
+- puskesmasCloseHour
+
+Employee (Collection)
+
+- _id (Object Id) - Autogen
+- puskesmasId (ObjectId)
+- employeeName (Required)
+- employeeGender
+- employeeDob
+- employeePermission ("Director", "Nurse", etc.) OR (0, 1, 2)
+
+Activity Log (Collection)
+
+- puskesmasId (ObjectId)
+- employeeId (ObjectId)
+- _id (Object Id) - Autogen
+- logTitle (Required)
+- logType (Optional)
+- logData
+- logDescription
+
+Visited Desa A | April 4, 2025 | Measured 12 Lansia
+
+TODO for each collection
+
+- Generate Model Schema in TypeScript (TS)
+- Generate Controllers in TS
+- Generate Routes in TS
+- Generate Dummy Data
+	- MongoDB compass
