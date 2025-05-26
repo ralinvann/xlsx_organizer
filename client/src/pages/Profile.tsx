@@ -13,8 +13,6 @@ import {
   MenuItem,
   Grid,
 } from '@mui/material';
-import Header from '../components/Header';
-import Footer from '../components/Footer';
 
 type LogType = 'Visit' | 'Intervention' | 'Distribution' | 'Training' | 'Survey' | 'Emergency';
 
@@ -53,8 +51,6 @@ const Profile: React.FC = () => {
 
   return (
     <Box display="flex" flexDirection="column" minHeight="100vh">
-      <Header />
-
       <Container
         maxWidth="lg"
         sx={{
@@ -167,7 +163,7 @@ const Profile: React.FC = () => {
 
           <List disablePadding>
             {filteredLogs.length === 0 && (
-              <Typography variant="body1" sx={{ color: '#fff' }}>
+              <Typography variant="body1" sx={{ color: '#000' }}>
                 No matching records found.
               </Typography>
             )}
@@ -184,7 +180,7 @@ const Profile: React.FC = () => {
                     <Typography
                       variant="subtitle1"
                       fontWeight="bold"
-                      sx={{ color: '#fff' }}
+                      sx={{ color: '#000' }}
                     >
                       {log.title}
                     </Typography>
@@ -192,7 +188,7 @@ const Profile: React.FC = () => {
                   secondary={
                     <Typography
                       variant="body2"
-                      sx={{ color: 'rgba(255, 255, 255, 0.85)', mt: 0.5, whiteSpace: 'normal' }}
+                      sx={{ color: '#000', mt: 0.5, whiteSpace: 'normal' }}
                     >
                       {log.date}
                       <br />
@@ -205,8 +201,6 @@ const Profile: React.FC = () => {
           </List>
         </Paper>
       </Container>
-
-      <Footer />
     </Box>
   );
 };

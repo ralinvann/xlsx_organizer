@@ -6,7 +6,8 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^6.4.0",
-    "@mui/material": "^6.4.0",
+    "@mui/material": "^6.4.11",
+    "@mui/x-charts": "^8.4.0",
     "axios": "^1.7.9",
     "chart.js": "^4.4.8",
     "cra-template": "1.2.0",
@@ -16,7 +17,9 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
     "react-scripts": "5.0.1",
-    "web-vitals": "^4.2.4"
+    "recharts": "^2.15.3",
+    "web-vitals": "^4.2.4",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "start": "react-scripts start",

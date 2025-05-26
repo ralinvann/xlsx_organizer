@@ -1,7 +1,18 @@
 import React from 'react';
 import { AppBar, Toolbar, Typography, Box, Button } from '@mui/material';
+import { NavLink, useLocation } from 'react-router-dom';
+import InsertPhotoIcon from '@mui/icons-material/InsertPhoto'; // placeholder for logo
 
 const Header: React.FC = () => {
+  const location = useLocation();
+
+  const navLinks = [
+    { label: 'Dashboard', path: '/dashboard' },
+    { label: 'Account', path: '/profile' },
+    { label: 'File', path: '/upload' },
+    { label: 'Help', path: '/help' },
+  ];
+
   return (
     <AppBar
       position="static"
@@ -12,25 +23,34 @@ const Header: React.FC = () => {
       }}
     >
       <Toolbar>
-        {/* Left: App Name */}
-        <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-          ElderCare Data Network
-        </Typography>
+        {/* Logo and App Name */}
+        <Box display="flex" alignItems="center" gap={1} sx={{ flexGrow: 1 }}>
+          <InsertPhotoIcon sx={{ fontSize: 28 }} />
+          <Typography variant="h6" fontWeight="bold">
+            ElderCare Data Network
+          </Typography>
+        </Box>
 
-        {/* Right: Nav Links */}
-        <Box display="flex" gap={2}>
-          <Button sx={{ color: 'white' }} href="/dashboard">
-            Dashboard
-          </Button>
-          <Button sx={{ color: 'white' }} href="/profile">
-            Account
-          </Button>
-          <Button sx={{ color: 'white' }} href="/inbox">
-            Inbox
-          </Button>
-          <Button sx={{ color: 'white' }} href="/help">
-            Help
-          </Button>
+        {/* Nav Links */}
+        <Box display="flex" gap={3}>
+          {navLinks.map((link) => (
+            <Button
+              key={link.path}
+              component={NavLink}
+              to={link.path}
+              sx={{
+                color: 'white',
+                fontWeight: 'bold',
+                borderBottom: location.pathname === link.path ? '3px solid white' : 'none',
+                borderRadius: 0,
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                },
+              }}
+            >
+              {link.label}
+            </Button>
+          ))}
         </Box>
       </Toolbar>
     </AppBar>
