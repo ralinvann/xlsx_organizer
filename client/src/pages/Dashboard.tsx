@@ -23,6 +23,32 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+
+interface Populasi {
+  lakiLaki: number;
+  perempuan: number;
+  total: number;
+}
+
+interface Sasaran {
+  kategori: string;
+  populasi: Populasi;
+}
+
+interface Desa {
+  desa: string;
+  sasaran: Sasaran[];
+  totalSasaran: number;
+}
+
+interface Puskesmas {
+  name: string;
+  kabupaten: string;
+  desaList: Desa[];
+}
+
 
 const stats = [
   { label: 'Hasil Pengukuran Lansia', value: '15,320' },
@@ -50,6 +76,25 @@ const pieData = [
 const COLORS = ['#f7833d', '#f7a45e', '#f9c48d'];
 
 const Dashboard: React.FC = () => {
+  const [data, setData] = useState<Puskesmas[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await axios.get<Puskesmas[]>('http://localhost:5000/api/puskesmas');
+        setData(res.data);
+        console.log('Fetched Puskesmas:', res.data); // For now, just log
+      } catch (error) {
+        console.error('Failed to fetch Puskesmas data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   return (
     <Box display="flex" flexGrow={1} bgcolor="#fff7f2">
       {/* Sidebar Filters */}
