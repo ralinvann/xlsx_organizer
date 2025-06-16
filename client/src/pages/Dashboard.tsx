@@ -49,16 +49,6 @@ interface Puskesmas {
   desaList: Desa[];
 }
 
-
-const stats = [
-  { label: 'Hasil Pengukuran Lansia', value: '15,320' },
-  { label: 'Sasaran Lansia (Data BPS)', value: '12,000' },
-  { label: 'Jumlah Lansia Diukur', value: '14,500' },
-  { label: 'Persentase Lansia Diukur', value: '96%' },
-  { label: 'Jumlah Lansia dengan Kondisi Kritis', value: '2,300' },
-  { label: 'Jumlah Lansia yang Diintervensi', value: '11,500' },
-];
-
 const filters = ['Date range', 'Kabupaten', 'Kecamatan', 'Kelurahan', 'Desa', 'Puskesmas'];
 
 const barData = [
@@ -84,7 +74,6 @@ const Dashboard: React.FC = () => {
       try {
         const res = await axios.get<Puskesmas[]>('http://localhost:5000/api/puskesmas');
         setData(res.data);
-        console.log('Fetched Puskesmas:', res.data); // For now, just log
       } catch (error) {
         console.error('Failed to fetch Puskesmas data:', error);
       } finally {
@@ -229,78 +218,44 @@ const Dashboard: React.FC = () => {
           </Grid>
         </Grid>
 
-        {/* Bottom Stats Section */}
-        <Paper sx={{ p: 4, borderRadius: 3, bgcolor: '#dc6023' }} elevation={4}>
-          <Box mb={2}>
-            <FormControl
-              size="small"
-              variant="outlined"
-              sx={{
-                minWidth: 140,
-                backgroundColor: '#fff',
-                borderRadius: '999px',
-                overflow: 'hidden',
-                boxShadow: 2,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: '999px',
-                  paddingLeft: 1.5,
-                  paddingRight: 1.5,
-                },
-                '& .MuiInputLabel-root': {
-                  top: '-4px',
-                  left: 12,
-                },
-              }}
-            >
-              <InputLabel id="list-label">List</InputLabel>
-              <Select
-                labelId="list-label"
-                defaultValue="list"
-                label="List"
-                sx={{
-                  borderRadius: '999px',
-                  '& .MuiSelect-select': {
-                    paddingY: '8px',
-                    paddingX: '20px',
-                  },
-                }}
-              >
-                <MenuItem value="list">List</MenuItem>
-              </Select>
-            </FormControl>
-          </Box>
-          <Typography
-            variant="h5"
-            fontWeight="bold"
-            textAlign="center"
-            gutterBottom
-            color="black"
-          >
-            Pengukuran dan Intervensi Lansia
+        {/* Desa and Sasaran Table */}
+        <Paper sx={{ p: 4, borderRadius: 3, bgcolor: '#fff3e6' }} elevation={4}>
+          <Typography variant="h5" fontWeight="bold" mb={3} textAlign="center">
+            Detail Sasaran Lansia per Desa
           </Typography>
 
-          <Grid container spacing={3}>
-            {stats.map((stat, index) => (
-              <Grid item xs={12} sm={6} md={4} key={index}>
-                <Paper
-                  elevation={5}
-                  sx={{
-                    p: 2,
-                    textAlign: 'center',
-                    borderRadius: 3,
-                    backgroundColor: '#fcd2b6',
-                  }}
-                >
-                  <Typography variant="subtitle1" fontWeight="medium" color="black">
-                    {stat.label}
-                  </Typography>
-                  <Typography variant="h5" fontWeight="bold" color="black">
-                    {stat.value}
-                  </Typography>
-                </Paper>
-              </Grid>
-            ))}
-          </Grid>
+          {data.length === 0 ? (
+            <Typography>Loading data...</Typography>
+          ) : (
+            <Box sx={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#fcd2b6' }}>
+                    <th style={{ padding: '12px', border: '1px solid #ddd' }}>Desa</th>
+                    <th style={{ padding: '12px', border: '1px solid #ddd' }}>Kategori</th>
+                    <th style={{ padding: '12px', border: '1px solid #ddd' }}>Laki-laki</th>
+                    <th style={{ padding: '12px', border: '1px solid #ddd' }}>Perempuan</th>
+                    <th style={{ padding: '12px', border: '1px solid #ddd' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data[0].desaList.map((desa) =>
+                    desa.sasaran.map((sasaran, idx) => (
+                      <tr key={`${desa.desa}-${idx}`}>
+                        <td style={{ padding: '10px', border: '1px solid #ddd' }}>
+                          {idx === 0 ? desa.desa : ''}
+                        </td>
+                        <td style={{ padding: '10px', border: '1px solid #ddd' }}>{sasaran.kategori}</td>
+                        <td style={{ padding: '10px', border: '1px solid #ddd' }}>{sasaran.populasi.lakiLaki}</td>
+                        <td style={{ padding: '10px', border: '1px solid #ddd' }}>{sasaran.populasi.perempuan}</td>
+                        <td style={{ padding: '10px', border: '1px solid #ddd' }}>{sasaran.populasi.total}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </Box>
+          )}
         </Paper>
       </Container>
     </Box>
