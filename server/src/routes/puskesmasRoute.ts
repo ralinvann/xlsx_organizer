@@ -1,15 +1,14 @@
-// routes/puskesmasRoutes.js
-import express from "express";
+import express from 'express';
 import {
-  createPuskesmas,
   getAllPuskesmas,
-  getPuskesmasById
-} from "../controllers/puskesmasController.js";
+  getPuskesmasById,
+  updatePuskesmas
+} from '../controllers/puskesmasController';
 
 const router = express.Router();
 
-router.post("/", createPuskesmas);
-router.get("/", getAllPuskesmas);
-router.get("/:id", getPuskesmasById);
+router.get('/', getAllPuskesmas);
+router.get('/:id', getPuskesmasById);
+router.put('/:id', updatePuskesmas);
 
 export default router;
