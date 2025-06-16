@@ -1,3 +1,15 @@
-//getAllPuskesmas Route = "localhost:5000/api/puskesmas"
-//getPuskesmasByName Route = "localhost:5000/api/puskesmas/:name"
-//"localhost:5000/api/puskesmas/"Puskesmas 01""
+// routes/puskesmasRoutes.js
+import express from "express";
+import {
+  createPuskesmas,
+  getAllPuskesmas,
+  getPuskesmasById
+} from "../controllers/puskesmasController.js";
+
+const router = express.Router();
+
+router.post("/", createPuskesmas);
+router.get("/", getAllPuskesmas);
+router.get("/:id", getPuskesmasById);
+
+export default router;
