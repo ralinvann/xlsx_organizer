@@ -20,6 +20,8 @@ interface DesaEntry {
 export interface IPuskesmas extends Document {
   name: string;
   kabupaten: string;
+  year: number;
+  month: number;
   desaList: DesaEntry[];
 }
 

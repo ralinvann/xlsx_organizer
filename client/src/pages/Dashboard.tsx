@@ -79,6 +79,8 @@ const Dashboard: React.FC = () => {
   const [data, setData] = useState<Puskesmas[]>([]);
   const [loading, setLoading] = useState(true);
 
+  //nyambung client ke server 84-98
+
   useEffect(() => {
     const fetchData = async () => {
       try {
