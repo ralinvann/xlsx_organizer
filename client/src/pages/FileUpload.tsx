@@ -44,15 +44,26 @@ const FileUpload: React.FC = () => {
   const toggleLang = () => setLang((prev) => (prev === 'en' ? 'id' : 'en'));
 
   const handleFile = async (file: File) => {
-    const reader = new FileReader();
+  const reader = new FileReader();
     reader.onload = (e) => {
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
 
-      navigate('/preview', { state: { data: json } });
+        // Get proper object-formatted rows
+        const json = XLSX.utils.sheet_to_json(worksheet, {
+          defval: '', // fill empty cells with empty string
+          raw: false, // format dates nicely
+          range: 5,   // skip the merged headers (starts at row 6)
+        });
+
+        navigate('/preview', { state: { data: json } });
+      } catch (err) {
+        console.error('Error reading file:', err);
+        alert('Error parsing the Excel file. Please make sure it follows the official format.');
+      }
     };
     reader.readAsArrayBuffer(file);
   };
@@ -68,6 +79,8 @@ const FileUpload: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) handleFile(file);
   };
+
+  // Removed unused code referencing undefined 'parsedData' and 'setFileData'
 
   return (
     <Box display="flex" flexDirection="column" minHeight="100vh" bgcolor="#fff7f2">
