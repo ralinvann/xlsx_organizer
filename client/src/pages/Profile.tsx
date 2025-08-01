@@ -48,6 +48,7 @@ const Profile: React.FC = () => {
     const matchesYear = filterYear ? log.year === parseInt(filterYear) : true;
     return matchesTitle && matchesType && matchesYear;
   });
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   return (
     <Box display="flex" flexDirection="column" minHeight="100vh">
@@ -73,13 +74,13 @@ const Profile: React.FC = () => {
             background: 'linear-gradient(to bottom right, #dc6023, #e8823f)',
           }}
         >
-          <Avatar sx={{ width: 64, height: 64, mr: 3 }} />
+          <Avatar sx={{ width: 64, height: 64, mr: 3 }}>{user.firstName?.[0]}</Avatar>
           <Box>
             <Typography variant="h6" fontWeight="bold">
-              John Doe
+              {user.firstName} {user.lastName}
             </Typography>
             <Typography variant="body1" fontWeight="medium">
-              (Nurse/Worker)
+              ({user.role || 'User'})
             </Typography>
           </Box>
         </Paper>

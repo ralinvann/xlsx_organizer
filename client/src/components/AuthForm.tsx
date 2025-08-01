@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Box,
   Button,
   TextField,
   Typography,
@@ -16,14 +15,19 @@ import LockIcon from '@mui/icons-material/Lock';
 
 const AuthForm: React.FC = () => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [formData, setFormData] = useState({ username: '', email: '', password: '' });
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+  });
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const handleToggle = (_: any, newMode: 'login' | 'signup' | null) => {
     if (newMode) {
       setMode(newMode);
-      setFormData({ username: '', email: '', password: '' });
+      setFormData({ firstName: '', lastName: '', email: '', password: '' });
       setErrorMsg('');
       setSuccessMsg('');
     }
@@ -44,8 +48,16 @@ const AuthForm: React.FC = () => {
 
       const body =
         mode === 'signup'
-          ? { username: formData.username, email: formData.email, password: formData.password }
-          : { email: formData.email, password: formData.password };
+          ? {
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              email: formData.email,
+              password: formData.password,
+            }
+          : {
+              email: formData.email,
+              password: formData.password,
+            };
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -56,8 +68,18 @@ const AuthForm: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || `${mode} failed`);
 
-      localStorage.setItem('token', data.token || '');
-      setSuccessMsg(`${mode === 'login' ? 'Logged in' : 'Signed up'} successfully`);
+      if (mode === 'login') {
+        localStorage.setItem('token', data.token || '');
+        localStorage.setItem('user', JSON.stringify(data.user || {}));
+        setSuccessMsg('Logged in successfully');
+        // redirect to dashboard
+        window.location.href = '/dashboard';
+      } else {
+        setSuccessMsg('Account created. Please log in.');
+        // switch to login mode
+        setMode('login');
+        setFormData({ firstName: '', lastName: '', email: '', password: '' });
+      }
     } catch (err: any) {
       setErrorMsg(err.message);
     }
@@ -99,22 +121,40 @@ const AuthForm: React.FC = () => {
       {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
 
       {mode === 'signup' && (
-        <TextField
-          fullWidth
-          variant="outlined"
-          label="Username"
-          value={formData.username}
-          onChange={handleChange('username')}
-          sx={inputStyle}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <PersonIcon sx={{ color: '#9e5b31' }} />
-              </InputAdornment>
-            ),
-          }}
-          InputLabelProps={{ sx: { color: '#9e5b31' } }}
-        />
+        <>
+          <TextField
+            fullWidth
+            variant="outlined"
+            label="First Name"
+            value={formData.firstName}
+            onChange={handleChange('firstName')}
+            sx={inputStyle}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <PersonIcon sx={{ color: '#9e5b31' }} />
+                </InputAdornment>
+              ),
+            }}
+            InputLabelProps={{ sx: { color: '#9e5b31' } }}
+          />
+          <TextField
+            fullWidth
+            variant="outlined"
+            label="Last Name"
+            value={formData.lastName}
+            onChange={handleChange('lastName')}
+            sx={inputStyle}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <PersonIcon sx={{ color: '#9e5b31' }} />
+                </InputAdornment>
+              ),
+            }}
+            InputLabelProps={{ sx: { color: '#9e5b31' } }}
+          />
+        </>
       )}
 
       <TextField

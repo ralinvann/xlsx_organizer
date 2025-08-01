@@ -6,7 +6,7 @@ import User from "../models/User";
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
 export const signup = async (req: Request, res: Response): Promise<void> => {
-  const { username, email, password } = req.body;
+  const { firstName, lastName, email, password } = req.body;
 
   try {
     const existing = await User.findOne({ email });
@@ -16,9 +16,11 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ username, email, password: hashed });
+    const user = await User.create({ firstName, lastName, email, password: hashed });
 
-    res.status(201).json({ message: "User created", userId: user._id });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
+
+    res.status(201).json({ token, user });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err });
   }
@@ -42,7 +44,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
 
-    res.status(200).json({ token, userId: user._id });
+    res.status(200).json({ token, user });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err });
   }
