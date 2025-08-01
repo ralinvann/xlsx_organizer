@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Button, TextField, Paper } from '@mui/material';
+import { Box, Typography, Button, } from '@mui/material';
 import AuthForm from '../components/AuthForm'; 
 
 const TYPING_TEXT = `Our platform helps healthcare workers collect, analyze, and visualize elderly care data from villages across the region. Upload health reports, monitor critical conditions, and ensure timely interventions — all in one place.`;
