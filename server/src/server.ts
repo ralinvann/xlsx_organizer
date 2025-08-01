@@ -27,5 +27,6 @@ app.get('/home', (req: Request, res: Response) => {
 // Centralized API routing
 app.use('/api', apiRoutes);
 
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
