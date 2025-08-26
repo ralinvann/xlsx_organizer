@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Box, CssBaseline, GlobalStyles } from '@mui/material';
+import { Box, CssBaseline, GlobalStyles, Container } from '@mui/material';
 
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
@@ -44,15 +44,25 @@ const App: React.FC = () => {
         }}
       >
         <Header />
-        <Box flexGrow={1}>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/upload" element={<FileUpload />} />
-            <Route path="/preview" element={<FilePreview />} />
-          </Routes>
+
+        {/* Main content wrapped to 80% width centered */}
+        <Box flexGrow={1} py={4}>
+          <Container
+            sx={{
+              width: '85%',
+              mx: 'auto', // center horizontally
+            }}
+          >
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/upload" element={<FileUpload />} />
+              <Route path="/preview" element={<FilePreview />} />
+            </Routes>
+          </Container>
         </Box>
+
         <Footer />
       </Box>
     </Router>
