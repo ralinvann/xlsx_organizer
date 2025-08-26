@@ -18,14 +18,14 @@ type SortDirection = 'asc' | 'desc' | null;
 
 const FilePreview: React.FC = () => {
   const location = useLocation();
-  const rawData: string[][] = location.state?.data || [];
+  const rawData: Record<string, string>[] = location.state?.data || [];
 
   const [sortConfig, setSortConfig] = useState<{
-    columnIndex: number | null;
+    columnKey: string | null;
     direction: SortDirection;
-  }>({ columnIndex: null, direction: null });
+  }>({ columnKey: null, direction: null });
 
-  const [data, setData] = useState<string[][]>(rawData);
+  const [data, setData] = useState<Record<string, string>[]>(rawData);
 
   if (!rawData || rawData.length === 0) {
     return (
@@ -42,29 +42,28 @@ const FilePreview: React.FC = () => {
     );
   }
 
-  const headers = rawData[0];
-  const bodyRows = rawData.slice(1);
+  const headers = Object.keys(rawData[0]);
 
-  const handleSort = (columnIndex: number) => {
+  const handleSort = (columnKey: string) => {
     let nextDirection: SortDirection = 'asc';
-    if (sortConfig.columnIndex === columnIndex) {
+    if (sortConfig.columnKey === columnKey) {
       if (sortConfig.direction === 'asc') nextDirection = 'desc';
       else if (sortConfig.direction === 'desc') nextDirection = null;
     }
 
-    setSortConfig({ columnIndex, direction: nextDirection });
+    setSortConfig({ columnKey, direction: nextDirection });
 
     if (nextDirection === null) {
       setData(rawData);
     } else {
-      const sortedBody = [...bodyRows].sort((a, b) => {
-        const valA = a[columnIndex] || '';
-        const valB = b[columnIndex] || '';
+      const sorted = [...data].sort((a, b) => {
+        const valA = a[columnKey] || '';
+        const valB = b[columnKey] || '';
         return nextDirection === 'asc'
           ? valA.localeCompare(valB)
           : valB.localeCompare(valA);
       });
-      setData([headers, ...sortedBody]);
+      setData(sorted);
     }
   };
 
@@ -84,9 +83,9 @@ const FilePreview: React.FC = () => {
           <Table stickyHeader>
             <TableHead>
               <TableRow>
-                {headers.map((header, index) => (
+                {headers.map((header) => (
                   <TableCell
-                    key={index}
+                    key={header}
                     sx={{
                       fontWeight: 'bold',
                       backgroundColor: '#f7c9a6',
@@ -96,13 +95,13 @@ const FilePreview: React.FC = () => {
                       zIndex: 1,
                       cursor: 'pointer',
                     }}
-                    onClick={() => handleSort(index)}
+                    onClick={() => handleSort(header)}
                   >
                     <TableSortLabel
-                      active={sortConfig.columnIndex === index}
+                      active={sortConfig.columnKey === header}
                       direction={sortConfig.direction ?? 'asc'}
-                      hideSortIcon={sortConfig.columnIndex !== index}
-                      IconComponent={() => null} // Optional: Hide default icon
+                      hideSortIcon={sortConfig.columnKey !== header}
+                      IconComponent={() => null}
                     >
                       {header}
                     </TableSortLabel>
@@ -111,10 +110,10 @@ const FilePreview: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {data.slice(1).map((row, rowIndex) => (
+              {data.map((row, rowIndex) => (
                 <TableRow key={rowIndex}>
-                  {row.map((cell, colIndex) => (
-                    <TableCell key={colIndex}>{cell}</TableCell>
+                  {headers.map((header, colIndex) => (
+                    <TableCell key={colIndex}>{row[header]}</TableCell>
                   ))}
                 </TableRow>
               ))}
