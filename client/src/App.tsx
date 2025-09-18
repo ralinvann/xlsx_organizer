@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigation } from './components/Navigation';
 import { LoginScreen } from './components/LoginScreen';
 import { Dashboard } from './components/Dashboard';
@@ -12,6 +12,32 @@ type UserStatus = 'guest' | 'authenticated';
 export default function App() {
   const [userStatus, setUserStatus] = useState<UserStatus>('guest');
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [previewData, setPreviewData] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = () => {
+      try {
+        const raw = sessionStorage.getItem("previewData");
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+
+        if (parsed && parsed.rows && parsed.headerKeys) {
+          setPreviewData(parsed.rows ? parsed.rows : parsed);
+        } else if (Array.isArray(parsed)) {
+          setPreviewData(parsed);
+        } else if (parsed.rows) {
+          setPreviewData(parsed.rows);
+        }
+
+        setCurrentPage("preview");
+      } catch (e) {
+        console.warn("preview-ready handler parse failed", e);
+      }
+    };
+
+    window.addEventListener("preview-ready", handler);
+    return () => window.removeEventListener("preview-ready", handler);
+  }, []);
 
   const renderCurrentPage = () => {
     switch (currentPage) {

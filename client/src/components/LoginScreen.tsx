@@ -1,4 +1,4 @@
-import { React, useState } from "react";
+import { useState } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
@@ -7,37 +7,17 @@ import { Heart, Eye, EyeOff, ArrowLeft } from "lucide-react";
 interface LoginScreenProps {
   onLogin: () => void;
   onBack?: () => void;
+  onGuest?: () => void; // add this prop
 }
 
-export function LoginScreen({ onLogin, onBack }: LoginScreenProps) {
-  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
+export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  // Form state
   const [formData, setFormData] = useState({
-    fullname: "",
     email: "",
-    username: "",
     password: "",
-    confirmPassword: "",
   });
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-
-  // Tab switch handler
-  const handleTabSwitch = (tab: 'login' | 'signup') => {
-    setActiveTab(tab);
-    setFormData({
-      fullname: "",
-      email: "",
-      username: "",
-      password: "",
-      confirmPassword: "",
-    });
-    setErrorMsg("");
-    setSuccessMsg("");
-  };
 
   // Input change handler
   const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,53 +29,40 @@ export function LoginScreen({ onLogin, onBack }: LoginScreenProps) {
     setErrorMsg("");
     setSuccessMsg("");
     try {
-      const endpoint =
-        activeTab === "login"
-          ? "http://localhost:3001/api/auth/login"
-          : "http://localhost:3001/api/auth/signup";
-
-      const body =
-        activeTab === "signup"
-          ? {
-              fullname: formData.fullname,
-              email: formData.email,
-              username: formData.username,
-              password: formData.password,
-              confirmPassword: formData.confirmPassword,
-            }
-          : {
-              username: formData.username,
-              password: formData.password,
-            };
+      const endpoint = "http://localhost:3001/api/auth/login";
+      const body = {
+        email: formData.email,
+        password: formData.password,
+      };
 
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        credentials: "include", // send cookies if needed
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || `${activeTab} failed`);
+      if (!res.ok) throw new Error(data.message || "login failed");
 
-      if (activeTab === "login") {
-        localStorage.setItem("token", data.token || "");
-        localStorage.setItem("user", JSON.stringify(data.user || {}));
-        setSuccessMsg("Logged in successfully");
-        if (onLogin) onLogin();
-        window.location.href = "/dashboard";
-      } else {
-        setSuccessMsg("Account created. Please log in.");
-        setActiveTab("login");
-        setFormData({
-          fullname: "",
-          email: "",
-          username: "",
-          password: "",
-          confirmPassword: "",
-        });
-      }
+      localStorage.setItem("token", data.token || "");
+      localStorage.setItem("user", JSON.stringify(data.user || {}));
+      setSuccessMsg("Logged in successfully");
+      if (onLogin) onLogin(); // Use callback to update app state and show dashboard
+      // Remove: window.location.href = "/dashboard";
     } catch (err: any) {
-      setErrorMsg(err.message);
+      if (err.name === "TypeError" || err.message === "Failed to fetch") {
+        setErrorMsg("Tidak dapat terhubung ke server. Pastikan server berjalan dan CORS diizinkan.");
+      } else {
+        setErrorMsg(err.message);
+      }
+    }
+  };
+
+  // Guest access handler
+  const handleGuestAccess = () => {
+    if (onGuest) {
+      onGuest();
     }
   };
 
@@ -121,29 +88,6 @@ export function LoginScreen({ onLogin, onBack }: LoginScreenProps) {
             <CardDescription className="text-lg">
               Sistem Monitoring Kesehatan Lansia
             </CardDescription>
-            {/* Dynamic Tab Container */}
-            <div className="flex bg-muted rounded-lg p-1">
-              <button
-                onClick={() => handleTabSwitch('login')}
-                className={`flex-1 px-4 py-3 text-lg font-medium rounded-md transition-all ${
-                  activeTab === 'login'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Login
-              </button>
-              <button
-                onClick={() => handleTabSwitch('signup')}
-                className={`flex-1 px-4 py-3 text-lg font-medium rounded-md transition-all ${
-                  activeTab === 'signup'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Sign Up
-              </button>
-            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {errorMsg && (
@@ -152,130 +96,48 @@ export function LoginScreen({ onLogin, onBack }: LoginScreenProps) {
             {successMsg && (
               <div className="text-green-600 text-center text-sm">{successMsg}</div>
             )}
-            {activeTab === 'login' ? (
-              // Login Form
-              <div className="space-y-4">
+            {/* Only Login Form */}
+            <div className="space-y-4">
+              <Input
+                id="email"
+                type="email"
+                placeholder="Email"
+                className="h-12 text-lg border border-border focus:border-primary"
+                value={formData.email}
+                onChange={handleChange("email")}
+              />
+              <div className="relative">
                 <Input
-                  id="username"
-                  type="text"
-                  placeholder="Username"
-                  className="h-12 text-lg border border-border focus:border-primary"
-                  value={formData.username}
-                  onChange={handleChange("username")}
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Password"
+                  className="h-12 text-lg border border-border focus:border-primary pr-12"
+                  value={formData.password}
+                  onChange={handleChange("password")}
                 />
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Password"
-                    className="h-12 text-lg border border-border focus:border-primary pr-12"
-                    value={formData.password}
-                    onChange={handleChange("password")}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <Button 
-                  onClick={handleSubmit}
-                  className="w-full h-14 text-xl"
-                  size="lg"
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                  onClick={() => setShowPassword(!showPassword)}
                 >
-                  Masuk ke Sistem
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
-                <div className="text-center">
-                  <Button variant="link" className="text-lg text-muted-foreground">
-                    Lupa Password?
-                  </Button>
-                </div>
               </div>
-            ) : (
-              // Sign Up Form
-              <div className="space-y-4">
-                <Input
-                  id="fullname"
-                  type="text"
-                  placeholder="Nama Lengkap"
-                  className="h-12 text-lg border border-border focus:border-primary"
-                  value={formData.fullname}
-                  onChange={handleChange("fullname")}
-                />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Email"
-                  className="h-12 text-lg border border-border focus:border-primary"
-                  value={formData.email}
-                  onChange={handleChange("email")}
-                />
-                <Input
-                  id="new-username"
-                  type="text"
-                  placeholder="Username"
-                  className="h-12 text-lg border border-border focus:border-primary"
-                  value={formData.username}
-                  onChange={handleChange("username")}
-                />
-                <div className="relative">
-                  <Input
-                    id="new-password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Password"
-                    className="h-12 text-lg border border-border focus:border-primary pr-12"
-                    value={formData.password}
-                    onChange={handleChange("password")}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <div className="relative">
-                  <Input
-                    id="confirm-password"
-                    type={showConfirmPassword ? "text" : "password"}
-                    placeholder="Konfirmasi Password"
-                    className="h-12 text-lg border border-border focus:border-primary pr-12"
-                    value={formData.confirmPassword}
-                    onChange={handleChange("confirmPassword")}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <Button 
-                  onClick={handleSubmit}
-                  className="w-full h-14 text-xl"
-                  size="lg"
-                >
-                  Daftar Akun Baru
+              <Button 
+                onClick={handleSubmit}
+                className="w-full h-14 text-xl"
+                size="lg"
+              >
+                Masuk ke Sistem
+              </Button>
+              <div className="text-center">
+                <Button variant="link" className="text-lg text-muted-foreground">
+                  Lupa Password?
                 </Button>
-                <div className="text-center text-sm text-muted-foreground">
-                  Dengan mendaftar, Anda menyetujui{' '}
-                  <Button variant="link" className="text-sm p-0 h-auto">
-                    Syarat & Ketentuan
-                  </Button>
-                  {' '}kami
-                </div>
               </div>
-            )}
+            </div>
             {/* Guest Access Option */}
             <div className="pt-4 border-t border-border">
               <div className="text-center">
@@ -286,7 +148,7 @@ export function LoginScreen({ onLogin, onBack }: LoginScreenProps) {
                   variant="outline" 
                   size="lg" 
                   className="w-full h-12 text-lg"
-                  onClick={() => window.history.back()}
+                  onClick={handleGuestAccess}
                 >
                   Kembali ke Dashboard
                 </Button>
