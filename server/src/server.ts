@@ -10,7 +10,10 @@ dotenv.config({ path: './.env' });
 const app = express();
 // Fix CORS: allow credentials and set specific origin
 app.use(cors({
-  origin: 'http://localhost:3001',
+  origin: [
+    'http://localhost:3001',
+    'https://xlsx-organizer.onrender.com',
+  ],
   credentials: true
 }));
 

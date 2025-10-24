@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -5,8 +6,10 @@ import { Input } from "./ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Users, Shield, Activity, Search, UserPlus, Settings, Eye, Edit3, Trash2 } from "lucide-react";
+import { AddUserDialog } from "./AddUserDialog";
 
 export function AdminPage() {
+  const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
   const users = [
     {
       id: 1,
@@ -126,7 +129,11 @@ export function AdminPage() {
             <Settings className="w-5 h-5 mr-2" />
             Pengaturan Sistem
           </Button>
-          <Button size="lg" className="h-12 px-6 text-lg">
+          <Button 
+            size="lg" 
+            className="h-12 px-6 text-lg"
+            onClick={() => setIsAddUserDialogOpen(true)}
+          >
             <UserPlus className="w-5 h-5 mr-2" />
             Tambah Pengguna
           </Button>
@@ -274,6 +281,12 @@ export function AdminPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Add User Dialog */}
+      <AddUserDialog 
+        open={isAddUserDialogOpen} 
+        onOpenChange={setIsAddUserDialogOpen}
+      />
     </div>
   );
 }
