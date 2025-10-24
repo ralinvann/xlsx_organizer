@@ -55,8 +55,9 @@
             "@types/react": "^19.1.12",
             "@types/react-router-dom": "^5.3.3",
             "@types/xlsx": "^0.0.35",
+            "@vitejs/plugin-react": "^5.1.0",
             "@vitejs/plugin-react-swc": "^3.10.2",
-            "vite": "6.3.5"
+            "vite": "^6.3.5"
       },
       "scripts": {
             "dev": "vite",
