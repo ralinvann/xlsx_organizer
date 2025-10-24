@@ -10,9 +10,10 @@ dotenv.config({ path: './.env' });
 const app = express();
 // Fix CORS: allow credentials and set specific origin
 app.use(cors({
-  origin: 'http://localhost:3000', // set to your frontend's URL
+  origin: 'http://localhost:3001',
   credentials: true
 }));
+
 app.use(bodyParser.json());
 
 // Connect DB

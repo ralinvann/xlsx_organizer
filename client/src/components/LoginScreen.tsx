@@ -29,7 +29,13 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
     setErrorMsg("");
     setSuccessMsg("");
     try {
-      const endpoint = "http://localhost:3001/api/auth/login";
+      const API_BASE =
+        window.location.hostname === "localhost"
+          ? "http://localhost:3001"
+          : "https://xlsx-organizer-server.onrender.com";
+
+      const endpoint = `${API_BASE}/api/auth/login`;
+      
       const body = {
         email: formData.email,
         password: formData.password,
