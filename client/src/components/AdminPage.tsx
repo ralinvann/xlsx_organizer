@@ -7,9 +7,54 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Users, Shield, Activity, Search, UserPlus, Settings, Eye, Edit3, Trash2 } from "lucide-react";
 import { AddUserDialog } from "./AddUserDialog";
+import { useAuth } from "../hooks/useAuth";
 
 export function AdminPage() {
   const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
+  const { user, ready } = useAuth();
+
+  // Strict allowed roles (normalize to uppercase)
+  const ALLOWED_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+
+  // Wait for auth to initialize
+  if (!ready) return <div className="p-6 text-muted-foreground">Memuat data…</div>;
+
+  // Not logged in
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Card className="shadow-md">
+          <CardHeader>
+            <CardTitle>Akses Ditolak</CardTitle>
+          </CardHeader>
+          <CardContent>
+            Anda belum masuk. Silakan login dengan akun yang memiliki hak akses untuk melihat panel admin.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Strict role check
+  const role = String(user.role || "").toUpperCase();
+  const isAuthorized = ALLOWED_ROLES.has(role);
+  if (!isAuthorized) {
+    // Return an access denied card and do not render any admin data or components
+    return (
+      <div className="p-6">
+        <Card className="shadow-md">
+          <CardHeader>
+            <CardTitle>Akses Ditolak</CardTitle>
+          </CardHeader>
+          <CardContent>
+            Anda tidak memiliki izin untuk mengakses halaman ini. Jika Anda merasa ini sebuah kesalahan,
+            hubungi administrator sistem.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const users = [
     {
       id: 1,
@@ -125,6 +170,8 @@ export function AdminPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          {/* Only visible to authorized roles (already guaranteed by early-return above),
+              kept as explicit guard in case of refactor */}
           <Button variant="outline" size="lg" className="h-12 px-6 text-lg">
             <Settings className="w-5 h-5 mr-2" />
             Pengaturan Sistem
@@ -139,6 +186,8 @@ export function AdminPage() {
           </Button>
         </div>
       </div>
+      
+      {/* From here on the UI is only rendered for authorized users (see early return) */}
 
       {/* System Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

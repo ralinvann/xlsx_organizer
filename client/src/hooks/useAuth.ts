@@ -100,7 +100,29 @@ export function useAuth() {
     persist(null, "");
   }, [persist]);
 
-  useEffect(() => { fetchMe(); }, [fetchMe]);
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    const restoreSession = async () => {
+      const token = localStorage.getItem("token");
+      if (token) {
+        try {
+          const res = await api.get("/auth/me");
+          if (res.data?.user) {
+            setUser(res.data.user);
+            // Token is valid; ensure it's in localStorage
+            localStorage.setItem("token", token);
+          }
+        } catch (err) {
+          // Token is invalid; clear it
+          localStorage.removeItem("token");
+          setUser(null);
+        }
+      }
+      setReady(true);
+    };
+
+    restoreSession();
+  }, []);
 
   return { user, isAuthed, loading, ready, login, fetchMe, updateProfile, uploadAvatar, logout };
 }

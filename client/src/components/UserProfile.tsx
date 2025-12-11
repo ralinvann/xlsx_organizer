@@ -14,6 +14,8 @@ import {
   Edit3,
   Save,
   Upload,
+  X,
+  TextCursor,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
@@ -166,13 +168,24 @@ export function UserProfile() {
 
       {serverMsg && (
         <div
-          className={`p-3 rounded-md ${
+          className={`p-3 rounded-md flex items-center justify-between ${
             serverMsg.type === "ok"
               ? "bg-green-100 text-green-700"
               : "bg-red-100 text-red-700"
           }`}
+          role="status"
+          aria-live="polite"
         >
-          {serverMsg.text}
+          <div className="mr-4">{serverMsg.text}</div>
+          <button
+            type="button"
+            aria-label="Tutup pesan"
+            onClick={() => setServerMsg(null)}
+            className="p-1 rounded hover:bg-black/5"
+            style={{ cursor: "pointer" }}
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -193,7 +206,7 @@ export function UserProfile() {
                   <h3 className="text-2xl font-semibold">
                     {[firstName, middleName, lastName].filter(Boolean).join(" ")}
                   </h3>
-                  <p className="text-lg text-muted-foreground capitalize">{user.role}</p>
+                  <p className="text-lg text-muted-foreground" style={{ textTransform: "capitalize" }}>{user.role}</p>
                   <Badge className="mt-2 text-sm px-3 py-1">Status: Aktif</Badge>
                 </div>
               </div>
@@ -207,9 +220,20 @@ export function UserProfile() {
                   <div key={i} className="space-y-2 md:col-span-2">
                     <Label className="text-lg">{label}</Label>
                     {isEditing ? (
-                      <Input className="h-12 text-lg" value={val} onChange={(e) => set(e.target.value)} />
+                      <Input
+                        className="
+                          h-12 text-lg bg-muted rounded-md 
+                          px-3 py-2
+                          ring-2 ring-green-500 ring-offset-2  /* always-visible outline */
+                          focus:outline-none focus:ring-green-600
+                        "
+                        value={val}
+                        onChange={(e) => set(e.target.value)}
+                      />
                     ) : (
-                      <p className="text-lg p-3 bg-muted rounded-md">{val || "—"}</p>
+                      <p className="text-lg p-3 bg-muted rounded-md">
+                        {val || "—"}
+                      </p>
                     )}
                   </div>
                 ))}

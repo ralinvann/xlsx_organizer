@@ -32,9 +32,13 @@ export const requireAuth = async (
 
   try {
     const token = header.split(" ")[1];
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as AuthUser;
+    // JWT payload must include userId and role
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
+      userId: string;
+      role: string;
+    };
 
-    req.user = { id: payload.id, role: payload.role };
+    req.user = { id: payload.userId, role: payload.role as AuthUser["role"] };
     next();
   } catch (err) {
     res.status(401).json({ message: "Invalid or expired token" });

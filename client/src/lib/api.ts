@@ -10,7 +10,7 @@ import axios from "axios";
 function resolveBaseUrl(): string {
   const env =
         window.location.hostname === "localhost"
-          ? "http://localhost:3001"
+          ? "http://localhost:3001/api"
           : "https://xlsx-organizer-server.onrender.com";
   if (env) return env;
 
