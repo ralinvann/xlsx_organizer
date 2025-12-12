@@ -5,10 +5,11 @@ import { Alert, AlertDescription } from "./ui/alert";
 import { Users, Activity, AlertTriangle, TrendingUp, Calendar, MapPin, Lock, Eye } from "lucide-react";
 
 interface DashboardProps {
-  userStatus: 'guest' | 'authenticated';
+  userStatus: "guest" | "authenticated";
+  onLoginClick?: () => void;
 }
 
-export function Dashboard({ userStatus }: DashboardProps) {
+export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   const stats = [
     {
       title: "Jumlah Lansia Diukur",
@@ -28,12 +29,12 @@ export function Dashboard({ userStatus }: DashboardProps) {
     },
     {
       title: "Kasus Mendesak",
-      value: userStatus === 'guest' ? "***" : "23",
+      value: userStatus === "guest" ? "***" : "23",
       subtitle: "Perlu perhatian",
       icon: AlertTriangle,
       color: "text-red-600",
       bgColor: "bg-red-50",
-      restricted: userStatus === 'guest',
+      restricted: userStatus === "guest",
     },
     {
       title: "Peningkatan Kesehatan",
@@ -47,39 +48,43 @@ export function Dashboard({ userStatus }: DashboardProps) {
 
   const recentActivities = [
     {
-      patient: userStatus === 'guest' ? "Ibu S***" : "Ibu Siti Aminah",
+      patient: userStatus === "guest" ? "Ibu S***" : "Ibu Siti Aminah",
       action: "Pemeriksaan tekanan darah",
       status: "Normal",
       time: "2 jam yang lalu",
       location: "Puskesmas Cilandak",
-      restricted: userStatus === 'guest',
+      restricted: userStatus === "guest",
     },
     {
-      patient: userStatus === 'guest' ? "Bapak A***" : "Bapak Ahmad Yusuf",
+      patient: userStatus === "guest" ? "Bapak A***" : "Bapak Ahmad Yusuf",
       action: "Konsultasi diabetes",
       status: "Perlu tindak lanjut",
       time: "4 jam yang lalu",
       location: "RS Fatmawati",
-      restricted: userStatus === 'guest',
+      restricted: userStatus === "guest",
     },
     {
-      patient: userStatus === 'guest' ? "Ibu M***" : "Ibu Mariam",
+      patient: userStatus === "guest" ? "Ibu M***" : "Ibu Mariam",
       action: "Vaksinasi influenza",
       status: "Selesai",
       time: "6 jam yang lalu",
       location: "Puskesmas Kebayoran",
-      restricted: userStatus === 'guest',
+      restricted: userStatus === "guest",
     },
   ];
 
   return (
     <div className="p-6 space-y-8">
-      {userStatus === 'guest' && (
+      {userStatus === "guest" && (
         <Alert className="bg-primary/10 border-primary/30">
           <Eye className="h-5 w-5 text-primary" />
           <AlertDescription className="text-lg">
-            Anda sedang dalam mode guest. Beberapa data dibatasi untuk melindungi privasi pasien. 
-            <Button variant="link" className="p-0 h-auto ml-2 text-primary">
+            Anda sedang dalam mode guest. Beberapa data dibatasi untuk melindungi privasi pasien.
+            <Button
+              variant="link"
+              className="p-0 h-auto ml-2 text-primary"
+              onClick={() => onLoginClick?.()}
+            >
               Login untuk akses penuh
             </Button>
           </AlertDescription>
@@ -91,7 +96,7 @@ export function Dashboard({ userStatus }: DashboardProps) {
           <h2 className="text-3xl font-semibold">Dashboard Utama</h2>
           <p className="text-xl text-muted-foreground mt-2">
             Ringkasan aktivitas kesehatan lansia hari ini
-            {userStatus === 'guest' && (
+            {userStatus === "guest" && (
               <Badge variant="outline" className="ml-2">
                 <Eye className="w-4 h-4 mr-1" />
                 Guest View
@@ -99,18 +104,14 @@ export function Dashboard({ userStatus }: DashboardProps) {
             )}
           </p>
         </div>
-        <Button 
-          size="lg" 
-          className="h-12 px-6 text-lg"
-          disabled={userStatus === 'guest'}
-        >
+
+        <Button size="lg" className="h-12 px-6 text-lg" disabled={userStatus === "guest"}>
           <Calendar className="w-5 h-5 mr-2" />
           Lihat Laporan Bulanan
-          {userStatus === 'guest' && <Lock className="w-4 h-4 ml-2" />}
+          {userStatus === "guest" && <Lock className="w-4 h-4 ml-2" />}
         </Button>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
@@ -123,9 +124,7 @@ export function Dashboard({ userStatus }: DashboardProps) {
               )}
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg text-muted-foreground">
-                    {stat.title}
-                  </CardTitle>
+                  <CardTitle className="text-lg text-muted-foreground">{stat.title}</CardTitle>
                   <div className={`p-3 rounded-full ${stat.bgColor}`}>
                     <Icon className={`w-6 h-6 ${stat.color}`} />
                   </div>
@@ -140,12 +139,11 @@ export function Dashboard({ userStatus }: DashboardProps) {
         })}
       </div>
 
-      {/* Recent Activities */}
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="text-2xl flex items-center gap-2">
             Aktivitas Terbaru
-            {userStatus === 'guest' && (
+            {userStatus === "guest" && (
               <Badge variant="outline" className="text-sm">
                 Data Terbatas
               </Badge>
@@ -163,7 +161,7 @@ export function Dashboard({ userStatus }: DashboardProps) {
                 )}
                 <div className="flex justify-between items-start mb-2">
                   <h4 className="text-xl font-semibold">{activity.patient}</h4>
-                  <Badge 
+                  <Badge
                     variant={activity.status === "Normal" || activity.status === "Selesai" ? "default" : "destructive"}
                     className="text-sm px-3 py-1"
                   >
@@ -181,15 +179,11 @@ export function Dashboard({ userStatus }: DashboardProps) {
               </div>
             ))}
           </div>
+
           <div className="mt-6 text-center">
-            <Button 
-              variant="outline" 
-              size="lg" 
-              className="h-12 px-8 text-lg"
-              disabled={userStatus === 'guest'}
-            >
+            <Button variant="outline" size="lg" className="h-12 px-8 text-lg" disabled={userStatus === "guest"}>
               Lihat Semua Aktivitas
-              {userStatus === 'guest' && <Lock className="w-4 h-4 ml-2" />}
+              {userStatus === "guest" && <Lock className="w-4 h-4 ml-2" />}
             </Button>
           </div>
         </CardContent>

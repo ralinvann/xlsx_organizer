@@ -1,51 +1,56 @@
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Home, User, Users, HelpCircle, Upload, FileText, LogIn } from "lucide-react";
-import { useAuth } from "../hooks/useAuth";
+import { useAuth, type Role } from "../hooks/useAuth";
 
 interface NavigationProps {
   currentPage: string;
   onPageChange: (page: string) => void;
-  userStatus: 'guest' | 'authenticated';
+  userStatus: "guest" | "authenticated";
   onShowLogin: () => void;
-  userRole?: string | null; // optional role; if absent user is treated as non-admin
+  userRole?: Role | null; // optional override
 }
 
 export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin, userRole }: NavigationProps) {
-  const { user: authUser } = useAuth(); // fallback if parent didn't pass userRole
+  const { user: authUser } = useAuth();
+
+  const effectiveRole: Role | null = userRole ?? authUser?.role ?? null;
+  const isAdminRole = effectiveRole === "admin" || effectiveRole === "superadmin";
 
   const publicNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: "dashboard", label: "Dashboard", icon: Home },
+    { id: "help", label: "Help", icon: HelpCircle },
   ];
 
-  // Normalize role and define allowed admin roles
-  const effectiveRole = userRole ?? authUser?.role ?? null;
-  const roleNormalized = String(effectiveRole || "").toUpperCase().trim();
-  const ALLOWED_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
-  const isAdminRole = ALLOWED_ROLES.has(roleNormalized);
-
-  // Build authenticated nav items but include "users" only for allowed roles
   const authenticatedNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'upload', label: 'Upload', icon: Upload },
-    { id: 'preview', label: 'Preview', icon: FileText },
-    { id: 'account', label: 'Account', icon: User },
-    // 'users' will only be visible when isAdminRole === true
-    ...(isAdminRole ? [{ id: 'users', label: 'Users', icon: Users }] : []),
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: "dashboard", label: "Dashboard", icon: Home },
+    { id: "upload", label: "Upload", icon: Upload },
+    { id: "preview", label: "Preview", icon: FileText },
+    { id: "account", label: "Account", icon: User },
+    ...(isAdminRole ? [{ id: "users", label: "Users", icon: Users }] : []),
+    { id: "help", label: "Help", icon: HelpCircle },
   ];
 
-  const navItems = userStatus === 'authenticated' ? authenticatedNavItems : publicNavItems;
+  const navItems = userStatus === "authenticated" ? authenticatedNavItems : publicNavItems;
 
   const handleNavClick = (itemId: string) => {
-    // Guests trying to access restricted pages are prompted to login
-    if (userStatus === 'guest' && !['dashboard', 'help'].includes(itemId)) {
+    if (userStatus === "guest" && !["dashboard", "help"].includes(itemId)) {
       onShowLogin();
       return;
     }
-    // Extra safety: if the item is 'users' but role is not allowed, do nothing
-    if (itemId === 'users' && !isAdminRole) return;
+
+    if (itemId === "users" && !isAdminRole) return;
+
+    // optional: block preview if no stored previewData exists
+    if (itemId === "preview") {
+      const raw = sessionStorage.getItem("previewData");
+      if (!raw) {
+        // no data yet, send to upload instead
+        onPageChange("upload");
+        return;
+      }
+    }
+
     onPageChange(itemId);
   };
 
@@ -55,17 +60,16 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin,
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-semibold text-primary">Elder Care</h1>
-            {userStatus === 'guest' && (
+            {userStatus === "guest" && (
               <Badge variant="outline" className="text-sm px-3 py-1">
                 Guest Mode
               </Badge>
             )}
           </div>
+
           <div className="flex items-center gap-4">
-            <div className="text-sm text-muted-foreground">
-              Monitoring Kesehatan Lansia
-            </div>
-            {userStatus === 'guest' && (
+            <div className="text-sm text-muted-foreground">Monitoring Kesehatan Lansia</div>
+            {userStatus === "guest" && (
               <Button onClick={onShowLogin} size="lg" className="h-12 px-6 text-lg gap-3">
                 <LogIn size={20} />
                 Login
@@ -73,10 +77,10 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin,
             )}
           </div>
         </div>
+
         <div className="flex flex-wrap gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            // since 'users' is not included for non-admins above, no further UI hiding needed
             return (
               <Button
                 key={item.id}
