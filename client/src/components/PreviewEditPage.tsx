@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "./ui/table";
 import { CheckCircle, Edit3, Save, X } from "lucide-react";
+import { api } from "../lib/api";
 
 type UploadPayload = {
   kabupaten?: string;
@@ -235,37 +236,26 @@ export function PreviewEditPage({
         puskesmas: payload?.puskesmas ?? "",
         bulanTahun: payload?.bulanTahun ?? "",
         metaPairs: payload?.metaPairs ?? [],
-
         headerKeys: payload?.headerKeys ?? payload?.headerOrder ?? [],
         headerLabels: payload?.headerLabels ?? [],
         headerOrder: payload?.headerOrder ?? payload?.headerKeys ?? [],
-
         rowData: rows,
-
         fileName: payload?.fileName,
         sourceSheetName: payload?.sourceSheetName,
       };
 
-      const base = (import.meta as any).env?.VITE_API_BASE_URL ?? "";
-      const resp = await fetch(`${base}/api/elderly-reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.message ?? "Gagal menyimpan ke database.");
+      const { data } = await api.post("/elderly-reports", body); // IMPORTANT: no "/api" here
+      if (!data?.reportId) throw new Error("Response tidak valid dari server.");
 
       setSuccessMsg("Data berhasil diimpor ke database.");
-      try {
-        sessionStorage.removeItem("previewData");
-      } catch {}
-
+      sessionStorage.removeItem("previewData");
       if (typeof onDone === "function") onDone();
     } catch (e: any) {
-      console.error("Import failed", e);
-      setErrorMsg(e?.message ?? "Gagal mengimpor data. Coba lagi.");
+      const msg =
+        e?.response?.data?.message ||
+        e?.message ||
+        "Gagal mengimpor data. Coba lagi.";
+      setErrorMsg(msg);
     } finally {
       setLoading(false);
     }

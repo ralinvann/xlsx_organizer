@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react';
-import { Navigation } from './components/Navigation';
-import { LoginScreen } from './components/LoginScreen';
-import { Dashboard } from './components/Dashboard';
-import { UploadPage } from './components/UploadPage';
-import { PreviewEditPage } from './components/PreviewEditPage';
-import { UserProfile } from './components/UserProfile';
-import { AdminPage } from './components/AdminPage';
+import { useEffect, useState } from "react";
+import { Navigation } from "./components/Navigation";
+import { LoginScreen } from "./components/LoginScreen";
+import { Dashboard } from "./components/Dashboard";
+import { UploadPage } from "./components/UploadPage";
+import { PreviewEditPage } from "./components/PreviewEditPage";
+import { UserProfile } from "./components/UserProfile";
+import { AdminPage } from "./components/AdminPage";
 
-type UserStatus = 'guest' | 'authenticated';
+type UserStatus = "guest" | "authenticated";
 
 export default function App() {
-  const [userStatus, setUserStatus] = useState<UserStatus>('guest');
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [userStatus, setUserStatus] = useState<UserStatus>("guest");
+  const [currentPage, setCurrentPage] = useState("dashboard");
   const [previewData, setPreviewData] = useState<any>(null);
 
   useEffect(() => {
@@ -21,14 +21,8 @@ export default function App() {
         if (!raw) return;
         const parsed = JSON.parse(raw);
 
-        if (parsed && parsed.rows && parsed.headerKeys) {
-          setPreviewData(parsed.rows ? parsed.rows : parsed);
-        } else if (Array.isArray(parsed)) {
-          setPreviewData(parsed);
-        } else if (parsed.rows) {
-          setPreviewData(parsed.rows);
-        }
-
+        // IMPORTANT: keep the full payload, not just rows
+        setPreviewData(parsed);
         setCurrentPage("preview");
       } catch (e) {
         console.warn("preview-ready handler parse failed", e);
@@ -41,42 +35,65 @@ export default function App() {
 
   const renderCurrentPage = () => {
     switch (currentPage) {
-      case 'login':
+      case "login":
         return (
-          <LoginScreen 
+          <LoginScreen
             onLogin={() => {
-              setUserStatus('authenticated');
-              setCurrentPage('dashboard');
+              setUserStatus("authenticated");
+              setCurrentPage("dashboard");
             }}
           />
         );
-      case 'dashboard':
+
+      case "dashboard":
         return <Dashboard userStatus={userStatus} />;
-      case 'upload':
-        if (userStatus === 'guest') {
-          setCurrentPage('login');
+
+      case "upload":
+        if (userStatus === "guest") {
+          setCurrentPage("login");
           return <Dashboard userStatus={userStatus} />;
         }
-        return <UploadPage />;
-      case 'preview':
-        if (userStatus === 'guest') {
-          setCurrentPage('login');
+        return (
+          <UploadPage
+            onNavigate={(page, state) => {
+              if (page === "preview") {
+                setPreviewData(state?.data ?? null);
+                setCurrentPage("preview");
+              } else {
+                setCurrentPage(page);
+              }
+            }}
+          />
+        );
+
+      case "preview":
+        if (userStatus === "guest") {
+          setCurrentPage("login");
           return <Dashboard userStatus={userStatus} />;
         }
-        return <PreviewEditPage />;
-      case 'account':
-        if (userStatus === 'guest') {
-          setCurrentPage('login');
+        return (
+          <PreviewEditPage
+            initialData={previewData}
+            onDone={() => setCurrentPage("dashboard")}
+            onCancel={() => setCurrentPage("upload")}
+          />
+        );
+
+      case "account":
+        if (userStatus === "guest") {
+          setCurrentPage("login");
           return <Dashboard userStatus={userStatus} />;
         }
         return <UserProfile />;
-      case 'users':
-        if (userStatus === 'guest') {
-          setCurrentPage('login');
+
+      case "users":
+        if (userStatus === "guest") {
+          setCurrentPage("login");
           return <Dashboard userStatus={userStatus} />;
         }
         return <AdminPage />;
-      case 'help':
+
+      case "help":
         return (
           <div className="p-6 space-y-8">
             <div>
@@ -106,6 +123,7 @@ export default function App() {
             </div>
           </div>
         );
+
       default:
         return <Dashboard userStatus={userStatus} />;
     }
@@ -113,16 +131,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Only show navigation if not on login page */}
-      {currentPage !== 'login' && (
-        <Navigation 
-          currentPage={currentPage} 
+      {currentPage !== "login" && (
+        <Navigation
+          currentPage={currentPage}
           onPageChange={setCurrentPage}
           userStatus={userStatus}
-          onShowLogin={() => setCurrentPage('login')}
+          onShowLogin={() => setCurrentPage("login")}
         />
       )}
-      <main className={currentPage === 'login' ? '' : 'max-w-7xl mx-auto'}>
+      <main className={currentPage === "login" ? "" : "max-w-7xl mx-auto"}>
         {renderCurrentPage()}
       </main>
     </div>
