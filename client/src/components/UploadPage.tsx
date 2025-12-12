@@ -10,6 +10,23 @@ type UploadPageProps = {
   onNavigate?: (page: string, state?: any) => void;
 };
 
+type MetaPair = { key: string; value: string };
+
+type UploadPayload = {
+  kabupaten: string;
+  puskesmas: string;
+  bulanTahun: string;
+  metaPairs: MetaPair[];
+
+  rows: any[];
+  headerKeys: string[];
+  headerLabels: string[];
+  headerOrder: string[];
+
+  fileName?: string;
+  sourceSheetName?: string;
+};
+
 export function UploadPage({ onNavigate }: UploadPageProps) {
   const [uploadStep, setUploadStepState] = useState<number>(1);
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -17,7 +34,6 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
   const [fileName, setFileName] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // helper that updates state AND persists uploadStep
   const setUploadStep = (s: number) => {
     setUploadStepState(s);
     try {
@@ -27,7 +43,6 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     }
   };
 
-  // read persisted uploadStep/fileName on mount so UI stages persist
   useEffect(() => {
     try {
       const persistedStep = sessionStorage.getItem("uploadStep");
@@ -40,9 +55,27 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
   }, []);
 
   const steps = [
-    { number: 1, title: "Pilih File Data", description: "Upload file Excel atau CSV berisi data kesehatan lansia", status: uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending" },
-    { number: 2, title: "Validasi Data", description: "Sistem akan memeriksa format dan kelengkapan data", status: uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending" },
-    { number: 3, title: "Konfirmasi Import", description: "Review data sebelum disimpan ke sistem", status: uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending" }
+    {
+      number: 1,
+      title: "Pilih File Data",
+      description: "Upload file Excel atau CSV berisi data kesehatan lansia",
+      status:
+        uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending",
+    },
+    {
+      number: 2,
+      title: "Validasi Data",
+      description: "Sistem akan memeriksa format dan kelengkapan data",
+      status:
+        uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending",
+    },
+    {
+      number: 3,
+      title: "Konfirmasi Import",
+      description: "Review data sebelum disimpan ke sistem",
+      status:
+        uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending",
+    },
   ];
 
   const handleDrag = (e: React.DragEvent<HTMLDivElement>) => {
@@ -52,7 +85,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     if (e.type === "dragleave") setDragActive(false);
   };
 
-  // --- parsing helpers (same as before) -----------------------------------
+  // ---------------- parsing helpers ----------------
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
   function detectHeaderRow(arr: Array<any[]>, maxScanRows = 12, minNonEmptyCells = 3) {
@@ -61,7 +94,10 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     let bestCount = -1;
     for (let i = 0; i < rowsToCheck; i++) {
       const row = arr[i] || [];
-      const nonEmpty = row.reduce((acc, c) => acc + (c !== null && c !== undefined && String(c).trim() !== "" ? 1 : 0), 0);
+      const nonEmpty = row.reduce(
+        (acc, c) => acc + (c !== null && c !== undefined && String(c).trim() !== "" ? 1 : 0),
+        0
+      );
       if (nonEmpty > bestCount) {
         bestCount = nonEmpty;
         bestIdx = i;
@@ -94,7 +130,50 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       return key;
     });
   }
-  // ------------------------------------------------------------------------
+
+  function cleanCell(v: any) {
+    return String(v ?? "").replace(/\s+/g, " ").trim();
+  }
+
+  function isStopMarkerB(cellB: any) {
+    const s = cleanCell(cellB).toLowerCase();
+    return s.startsWith("diketahui");
+  }
+
+  // B2/C2, B3/C3, B4/C4 (AoA index: row 1..3, col B=1, col C=2)
+  function readMetaPairsFromAoA(rawAoA: any[][]) {
+    const pairsSpec = [
+      { row: 1, keyCol: 1, valCol: 2 }, // B2/C2
+      { row: 2, keyCol: 1, valCol: 2 }, // B3/C3
+      { row: 3, keyCol: 1, valCol: 2 }, // B4/C4
+    ];
+
+    const metaPairs: MetaPair[] = [];
+    for (const p of pairsSpec) {
+      const key = cleanCell(rawAoA?.[p.row]?.[p.keyCol]);
+      const value = cleanCell(rawAoA?.[p.row]?.[p.valCol]);
+      if (key && value) metaPairs.push({ key, value });
+    }
+
+    const metaMap: Record<string, string> = {};
+    metaPairs.forEach(({ key, value }) => {
+      const k = key.toLowerCase();
+      if (k.includes("kabupaten")) metaMap.kabupaten = value;
+      else if (k.includes("puskesmas")) metaMap.puskesmas = value;
+      else if (k.includes("bulan")) metaMap.bulanTahun = value;
+    });
+
+    return { metaPairs, metaMap };
+  }
+
+  function findStopRowIndex(rawAoA: any[][], startScanRowIdx: number) {
+    for (let r = startScanRowIdx; r < rawAoA.length; r++) {
+      const colB = rawAoA?.[r]?.[1]; // Column B
+      if (isStopMarkerB(colB)) return r;
+    }
+    return rawAoA.length;
+  }
+  // ------------------------------------------------
 
   const handleFile = (file: File) => {
     setFileError(null);
@@ -122,6 +201,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       try {
         const arrayBuffer = ev.target?.result;
         if (!arrayBuffer) throw new Error("Empty file result");
+
         const data = new Uint8Array(arrayBuffer as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
 
@@ -130,61 +210,70 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
 
         const worksheet = workbook.Sheets[sheetName];
 
-        // Read sheet as AoA for header detection
+        // Full sheet AoA
         const rawAoA: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-        const headerRowIndex = detectHeaderRow(rawAoA, 12, 3);
+
+        // Meta pairs: B2/C2, B3/C3, B4/C4
+        const { metaPairs, metaMap } = readMetaPairsFromAoA(rawAoA);
+
+        // Data starts from row 5 (index 4) and stops at Column B == "Diketahui :"
+        const dataStartRowIdx = 4;
+        const stopRowIdx = findStopRowIndex(rawAoA, dataStartRowIdx);
+
+        // Work only inside [row5..stop)
+        const sliced = rawAoA.slice(dataStartRowIdx, stopRowIdx);
+
+        // Detect header row within that slice
+        const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
+        const headerRowIndex = dataStartRowIdx + localHeaderOffset;
+
         const rawHeaderRow = rawAoA[headerRowIndex] ?? [];
         const headerKeys = normalizeHeaders(rawHeaderRow);
-        const headerLabels: string[] = (rawHeaderRow || []).map((c: any) => (c == null ? "" : String(c).trim()));
+        const headerLabels: string[] = rawHeaderRow.map((c: any) => cleanCell(c));
         const headerOrder = [...headerKeys];
 
-        // Convert rows using headerKeys
-        const json = XLSX.utils.sheet_to_json(worksheet, {
-          header: headerKeys,
-          range: headerRowIndex,
-          defval: "",
-          raw: false,
-        }) as Record<string, any>[];
+        // Body rows: from (headerRowIndex+1) to stopRowIdx (exclusive)
+        const bodyAoA = rawAoA.slice(headerRowIndex + 1, stopRowIdx);
 
-        // filter duplicate header-like rows
-        function looksLikeHeaderRow(rowObj: Record<string, any>) {
-          let matches = 0;
-          let total = 0;
-          for (let i = 0; i < headerKeys.length; i++) {
-            const key = headerKeys[i];
-            const label = (headerLabels[i] ?? "").trim().toLowerCase();
-            const val = (String(rowObj[key] ?? "").trim()).toLowerCase();
-            if (val !== "") {
-              total += 1;
-              if (label && val === label) matches += 1;
-            }
-          }
-          if (total === 0) return false;
-          return matches >= Math.ceil(total / 2);
+        // Convert AoA to objects using headerKeys
+        const cleanedRows = bodyAoA
+          .filter((rowArr) => (rowArr || []).some((x) => cleanCell(x) !== "")) // skip empty row
+          .map((rowArr, idx) => {
+            const obj: Record<string, any> = {};
+            headerKeys.forEach((k, i) => {
+              const v = rowArr?.[i] ?? "";
+              obj[k] = typeof v === "string" ? v.trim() : v;
+            });
+            obj.id = `row_${Date.now()}_${idx + 1}`;
+            return obj;
+          });
+
+        if (!metaMap.kabupaten || !metaMap.puskesmas || !metaMap.bulanTahun) {
+          console.warn("Meta header missing some values:", metaMap);
+        }
+        if (cleanedRows.length === 0) {
+          setFileError("Tidak ada row data yang terbaca (cek format dan posisi tabel).");
+          return;
         }
 
-        const cleanedRows = (json || []).filter((r) => !looksLikeHeaderRow(r)).map((r, idx) => {
-          const cleaned: Record<string, any> = {};
-          for (const k of headerKeys) {
-            const v = r[k];
-            cleaned[k] = typeof v === "string" ? v.trim() : v;
-          }
-          cleaned.id = cleaned.id ?? `row_${Date.now()}_${idx + 1}`;
-          return cleaned;
-        });
+        const payload: UploadPayload = {
+          kabupaten: metaMap.kabupaten ?? "",
+          puskesmas: metaMap.puskesmas ?? "",
+          bulanTahun: metaMap.bulanTahun ?? "",
+          metaPairs,
 
-        const payload = {
           rows: cleanedRows,
           headerKeys,
           headerLabels,
           headerOrder,
-          fileName: file.name, // include filename in payload
+
+          fileName: file.name,
+          sourceSheetName: sheetName,
         };
 
-        // Update UI step -> persist quickly
+        // Step -> persist quickly
         setUploadStep(2);
 
-        // persist the full payload as fallback BEFORE navigation
         try {
           sessionStorage.setItem("previewData", JSON.stringify(payload));
         } catch (err) {
@@ -195,12 +284,10 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         setTimeout(() => {
           setUploadStep(3);
 
-          // Primary path: notify parent (App) if provided
           if (typeof onNavigate === "function") {
             onNavigate("preview", { data: payload });
           }
 
-          // Always emit fallback event so App (or any other listener) can pick it up
           try {
             window.dispatchEvent(new CustomEvent("preview-ready", { detail: { timestamp: Date.now() } }));
           } catch (err) {
@@ -237,13 +324,13 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     <div className="p-6 space-y-8">
       <div>
         <h2 className="text-3xl font-semibold">Upload Document</h2>
-        <p className="text-xl text-muted-foreground mt-2">
-          Import data kesehatan lansia ke dalam sistem
-        </p>
-        {fileName && <div className="text-sm text-muted-foreground mt-2">File terakhir: <strong>{fileName}</strong></div>}
+        <p className="text-xl text-muted-foreground mt-2">Import data kesehatan lansia ke dalam sistem</p>
+        {fileName && (
+          <div className="text-sm text-muted-foreground mt-2">
+            File terakhir: <strong>{fileName}</strong>
+          </div>
+        )}
       </div>
-
-      {/* ... rest of JSX unchanged (progress cards, upload area, guidelines) ... */}
 
       {/* Progress Steps */}
       <Card className="shadow-md">
@@ -254,24 +341,26 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           <div className="space-y-6">
             {steps.map((step) => (
               <div key={step.number} className="flex items-start gap-4">
-                <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold ${
-                  step.status === 'completed' ? 'bg-green-100 text-green-700' :
-                  step.status === 'active' ? 'bg-primary text-primary-foreground' :
-                  'bg-gray-100 text-gray-500'
-                }`}>
-                  {step.status === 'completed' ? <CheckCircle className="w-6 h-6" /> : step.number}
+                <div
+                  className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold ${
+                    step.status === "completed"
+                      ? "bg-green-100 text-green-700"
+                      : step.status === "active"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-gray-100 text-gray-500"
+                  }`}
+                >
+                  {step.status === "completed" ? <CheckCircle className="w-6 h-6" /> : step.number}
                 </div>
                 <div className="flex-1">
                   <h3 className="text-xl font-semibold mb-2">{step.title}</h3>
                   <p className="text-lg text-muted-foreground">{step.description}</p>
                 </div>
-                <Badge variant={
-                  step.status === 'completed' ? 'default' :
-                  step.status === 'active' ? 'secondary' :
-                  'outline'
-                } className="text-sm px-3 py-1">
-                  {step.status === 'completed' ? 'Selesai' :
-                   step.status === 'active' ? 'Aktif' : 'Menunggu'}
+                <Badge
+                  variant={step.status === "completed" ? "default" : step.status === "active" ? "secondary" : "outline"}
+                  className="text-sm px-3 py-1"
+                >
+                  {step.status === "completed" ? "Selesai" : step.status === "active" ? "Aktif" : "Menunggu"}
                 </Badge>
               </div>
             ))}
@@ -286,7 +375,9 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         </CardHeader>
         <CardContent>
           <div
-            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${dragActive ? "border-primary bg-primary/5" : "border-border bg-muted/30"}`}
+            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+              dragActive ? "border-primary bg-primary/5" : "border-border bg-muted/30"
+            }`}
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
             onDragOver={handleDrag}
@@ -298,23 +389,15 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
               </div>
               <div>
                 <h3 className="text-2xl font-semibold mb-2">Seret file ke sini atau klik untuk browse</h3>
-                <p className="text-lg text-muted-foreground mb-4">Format yang didukung: .xlsx, .csv, .xls (Maksimal 10MB)</p>
+                <p className="text-lg text-muted-foreground mb-4">
+                  Format yang didukung: .xlsx, .csv, .xls (Maksimal 10MB)
+                </p>
               </div>
-              <Button
-                size="lg"
-                className="h-12 px-8 text-lg"
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <Button size="lg" className="h-12 px-8 text-lg" onClick={() => fileInputRef.current?.click()}>
                 <FileText className="w-5 h-5 mr-2" />
                 Pilih File
               </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                hidden
-                accept=".xlsx,.xls,.csv"
-                onChange={handleFileChange}
-              />
+              <input ref={fileInputRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={handleFileChange} />
             </div>
             {fileError && <div className="mt-4 text-red-600 text-center">{fileError}</div>}
           </div>
@@ -322,7 +405,11 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           {uploadStep > 1 && (
             <div className="mt-6 p-4 bg-secondary rounded-lg">
               <div className="flex items-center gap-3">
-                {uploadStep === 2 ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div> : <CheckCircle className="w-6 h-6 text-green-600" />}
+                {uploadStep === 2 ? (
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                ) : (
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                )}
                 <span className="text-lg">{uploadStep === 2 ? "Memproses file..." : "File berhasil divalidasi"}</span>
               </div>
             </div>

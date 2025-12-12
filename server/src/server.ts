@@ -3,7 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { connectDB } from './db/db';
-import apiRoutes from './routes'; // Centralized routes
+import apiRoutes from './routes';
 
 dotenv.config({ path: './.env' });
 
