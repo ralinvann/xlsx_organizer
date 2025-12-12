@@ -6,7 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 interface NavigationProps {
   currentPage: string;
   onPageChange: (page: string) => void;
-  userStatus: 'guest' | 'authenticated';
+  userStatus: "guest" | "authenticated";
   onShowLogin: () => void;
 }
 
@@ -24,8 +24,8 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin 
   };
 
   const publicNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: "dashboard", label: "Dashboard", icon: Home },
+    { id: "help", label: "Help", icon: HelpCircle },
   ];
 
   const authenticatedNavItems = [
@@ -37,7 +37,7 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin 
     { id: 'help', label: 'Help', icon: HelpCircle },
   ];
 
-  const navItems = userStatus === 'authenticated' ? authenticatedNavItems : publicNavItems;
+  const navItems = userStatus === "authenticated" ? authenticatedNavItems : publicNavItems;
 
   const handleNavClick = (itemId: string) => {
     if (userStatus === 'guest' && !['dashboard', 'help'].includes(itemId)) {
@@ -53,12 +53,13 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin 
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-semibold text-primary">Elder Care</h1>
-            {userStatus === 'guest' && (
+            {userStatus === "guest" && (
               <Badge variant="outline" className="text-sm px-3 py-1">
                 Guest Mode
               </Badge>
             )}
           </div>
+
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">
               Monitoring Kesehatan Lansia
@@ -76,6 +77,7 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin 
             )}
           </div>
         </div>
+
         <div className="flex flex-wrap gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
