@@ -1,40 +1,32 @@
 // src/lib/api.ts
-import axios from "axios";
+import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
 /**
- * Resolve API base URL robustly:
- * - LOCAL: http://localhost:3001
- * - PROD: env var VITE_API_BASE if present
- * - FALLBACK: relative /api (works behind reverse proxies)
+ * Resolve API base URL safely:
+ * 1. VITE_API_BASE (preferred)
+ * 2. localhost fallback
+ * 3. production fallback
  */
 function resolveBaseUrl(): string {
-  const env =
-        window.location.hostname === "localhost"
-          ? "http://localhost:3001/api"
-          : "https://xlsx-organizer-server.onrender.com";
-  if (env) return env;
 
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") {
     return "http://localhost:3001/api";
   }
-  // deploy fallback
-  const guess = [
-    "/api", // reverse-proxy path
-    "https://xlsx-organizer-server.onrender.com/api", // your listed server
-  ];
-  return guess[0];
+
+  // production default
+  return "https://xlsx-organizer-server.onrender.com/api";
 }
 
 export const API_BASE = resolveBaseUrl();
 
 export const api = axios.create({
   baseURL: API_BASE,
-  withCredentials: true,
   timeout: 15000,
 });
 
-// attach token if available
+/* ---------------- REQUEST INTERCEPTOR ---------------- */
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) {
@@ -44,33 +36,33 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// basic 401 handling & retry-once for network hiccups
-let isRetrying = false;
+/* ---------------- RESPONSE INTERCEPTOR ---------------- */
+
 api.interceptors.response.use(
   (res) => res,
-  async (err) => {
-    const original = err.config;
-    if (!original) throw err;
+  async (error: AxiosError) => {
+    const original = error.config as AxiosRequestConfig & { _retry?: boolean };
+    if (!original) throw error;
 
-    // Retry once on network error/timeouts
-    const netErr = err.code === "ECONNABORTED" || err.message?.includes("Network Error");
-    if (netErr && !isRetrying) {
-      isRetrying = true;
-      try {
-        const retry = await api(original);
-        isRetrying = false;
-        return retry;
-      } catch (e) {
-        isRetrying = false;
-        throw e;
-      }
+    // Retry once on network / timeout errors
+    const isNetworkError =
+      error.code === "ECONNABORTED" ||
+      error.message?.includes("Network Error");
+
+    if (isNetworkError && !original._retry) {
+      original._retry = true;
+      return api(original);
     }
 
-    // 401 → nuke token
-    if (err.response?.status === 401) {
+    // 401 → force logout
+    if (error.response?.status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+
+      // optional but recommended
+      window.dispatchEvent(new Event("auth-logout"));
     }
-    throw err;
+
+    throw error;
   }
 );

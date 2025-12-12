@@ -20,19 +20,23 @@ export function useAuth() {
     const cached = localStorage.getItem("user");
     try { return cached ? JSON.parse(cached) : null; } catch { return null; }
   });
+
+  const [token, setToken] = useState<string>(() => localStorage.getItem("token") || "");
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
-  const token = localStorage.getItem("token") || "";
 
   const isAuthed = useMemo(() => Boolean(token), [token]);
 
   const persist = useCallback((u: IUser | null, t?: string) => {
     if (u) localStorage.setItem("user", JSON.stringify(u));
     else localStorage.removeItem("user");
+
     if (t !== undefined) {
       if (t) localStorage.setItem("token", t);
       else localStorage.removeItem("token");
+      setToken(t || "");
     }
+
     setUser(u);
   }, []);
 
@@ -41,6 +45,7 @@ export function useAuth() {
     try {
       const { data } = await api.post("/users/login", { email, password });
       persist(data.user, data.token);
+      setReady(true);
       return { ok: true };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Login failed";
@@ -51,13 +56,18 @@ export function useAuth() {
   }, [persist]);
 
   const fetchMe = useCallback(async () => {
-    if (!localStorage.getItem("token")) { setReady(true); return; }
+    const t = localStorage.getItem("token");
+    if (!t) { setReady(true); return; }
+
     setLoading(true);
     try {
+      // IMPORTANT: ensure your api instance attaches Authorization header from localStorage token
       const { data } = await api.get<IUser>("/users/me");
-      persist(data);
+      // keep token as-is (but ensure state sync)
+      persist(data, t);
     } catch {
-      persist(null, ""); // drop token on failure
+      // token invalid -> drop
+      persist(null, "");
     } finally {
       setLoading(false);
       setReady(true);
@@ -68,7 +78,7 @@ export function useAuth() {
     setLoading(true);
     try {
       const { data } = await api.put<IUser>("/users/me", payload);
-      persist(data);
+      persist(data, token);
       return { ok: true, user: data };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Update failed";
@@ -76,7 +86,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [persist]);
+  }, [persist, token]);
 
   const uploadAvatar = useCallback(async (file: File) => {
     setLoading(true);
@@ -86,7 +96,7 @@ export function useAuth() {
       const { data } = await api.post<IUser>("/users/me/avatar", form, {
         headers: { "Content-Type": "multipart/form-data" }
       });
-      persist(data);
+      persist(data, token);
       return { ok: true, user: data };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Upload failed";
@@ -94,35 +104,17 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [persist]);
+  }, [persist, token]);
 
   const logout = useCallback(() => {
     persist(null, "");
+    setReady(true);
   }, [persist]);
 
-  // Restore session from localStorage on mount
+  // Single restore flow
   useEffect(() => {
-    const restoreSession = async () => {
-      const token = localStorage.getItem("token");
-      if (token) {
-        try {
-          const res = await api.get("/auth/me");
-          if (res.data?.user) {
-            setUser(res.data.user);
-            // Token is valid; ensure it's in localStorage
-            localStorage.setItem("token", token);
-          }
-        } catch (err) {
-          // Token is invalid; clear it
-          localStorage.removeItem("token");
-          setUser(null);
-        }
-      }
-      setReady(true);
-    };
+    void fetchMe();
+  }, [fetchMe]);
 
-    restoreSession();
-  }, []);
-
-  return { user, isAuthed, loading, ready, login, fetchMe, updateProfile, uploadAvatar, logout };
+  return { user, token, isAuthed, loading, ready, login, fetchMe, updateProfile, uploadAvatar, logout };
 }
