@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import {
   Table,
   TableBody,
@@ -11,13 +10,21 @@ import {
   TableHeader,
   TableRow,
 } from "./ui/table";
-import { CheckCircle, AlertTriangle, Edit3, Save, X } from "lucide-react";
+import { CheckCircle, Edit3, Save, X } from "lucide-react";
 
 type UploadPayload = {
+  kabupaten?: string;
+  puskesmas?: string;
+  bulanTahun?: string;
+  metaPairs?: { key: string; value: string }[];
+
   rows: any[];
-  headerKeys: string[];   // normalized keys used in objects
-  headerLabels: string[]; // original header display text (ALL CAPS)
-  headerOrder: string[];  // explicit order (same as headerKeys)
+  headerKeys: string[];
+  headerLabels: string[];
+  headerOrder: string[];
+
+  fileName?: string;
+  sourceSheetName?: string;
 };
 
 type PreviewEditPageProps = {
@@ -26,19 +33,21 @@ type PreviewEditPageProps = {
   onCancel?: () => void;
 };
 
-export function PreviewEditPage({ initialData = null, onDone, onCancel }: PreviewEditPageProps) {
-  // Hold the parsed payload shape (new standard). If app passed old plain array, we convert it to payload.
+export function PreviewEditPage({
+  initialData = null,
+  onDone,
+  onCancel,
+}: PreviewEditPageProps) {
   const [payload, setPayload] = useState<UploadPayload | null>(null);
 
-  // Local editing / UI state
   const [isEditing, setIsEditing] = useState(false);
   const [editingRowId, setEditingRowId] = useState<string | number | null>(null);
   const [editDraft, setEditDraft] = useState<Record<string, any> | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Normalize an array-of-rows into payload form (fallback for old-format)
   function payloadFromArray(arr: any[]): UploadPayload {
     const rows = (arr || []).map((r: any, i: number) => {
       const obj = { ...r };
@@ -54,15 +63,11 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
     return { rows, headerKeys, headerLabels, headerOrder };
   }
 
-  // Convert a stored payload that may accidentally be an array into normalized payload
   function normalizeStored(payloadOrArray: any): UploadPayload | null {
     if (!payloadOrArray) return null;
-    if (Array.isArray(payloadOrArray)) {
-      return payloadFromArray(payloadOrArray);
-    }
-    // if object with required props
-    if (payloadOrArray.rows && payloadOrArray.headerKeys) {
-      // ensure rows trimmed + ids
+    if (Array.isArray(payloadOrArray)) return payloadFromArray(payloadOrArray);
+
+    if (payloadOrArray.rows && (payloadOrArray.headerKeys || payloadOrArray.headerOrder)) {
       const rows = (payloadOrArray.rows || []).map((r: any, i: number) => {
         const obj = { ...r };
         if (obj.id === undefined || obj.id === null) obj.id = `row_${Date.now()}_${i + 1}`;
@@ -71,17 +76,24 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
         });
         return obj;
       });
+
       const headerKeys = payloadOrArray.headerOrder ?? payloadOrArray.headerKeys ?? [];
-      const headerLabels = payloadOrArray.headerLabels ?? headerKeys.map((k: string) => String(k).toUpperCase());
+      const headerLabels =
+        payloadOrArray.headerLabels ?? headerKeys.map((k: string) => String(k).toUpperCase());
       const headerOrder = headerKeys;
-      return { rows, headerKeys, headerLabels, headerOrder };
+
+      return {
+        ...payloadOrArray,
+        rows,
+        headerKeys,
+        headerLabels,
+        headerOrder,
+      };
     }
     return null;
   }
 
-  // initialize payload from initialData or sessionStorage
   useEffect(() => {
-    // 1) If parent passed payload directly (new flow)
     if (initialData && !Array.isArray(initialData)) {
       const p = normalizeStored(initialData);
       if (p) {
@@ -90,14 +102,11 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
       }
     }
 
-    // 2) If parent passed old-style array
     if (initialData && Array.isArray(initialData)) {
-      const p = payloadFromArray(initialData);
-      setPayload(p);
+      setPayload(payloadFromArray(initialData));
       return;
     }
 
-    // 3) fallback to sessionStorage 'previewData'
     try {
       const s = sessionStorage.getItem("previewData");
       if (s) {
@@ -107,7 +116,6 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
           setPayload(p);
           return;
         }
-        // if parsed was just an array:
         if (Array.isArray(parsed)) {
           setPayload(payloadFromArray(parsed));
           return;
@@ -117,27 +125,27 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
       console.warn("Failed to read previewData from sessionStorage", e);
     }
 
-    // nothing found
     setPayload(null);
   }, [initialData]);
 
-  // accessors
   const rows = payload?.rows ?? null;
   const headerKeys = payload?.headerOrder ?? payload?.headerKeys ?? [];
   const headerLabels = payload?.headerLabels ?? headerKeys.map((k) => String(k).toUpperCase());
 
-  // Basic validation summary (keeps your previous logic)
   const validationResults = useMemo(() => {
     if (!rows) return { total: 0, valid: 0, warning: 0, error: 0 };
+
     let total = rows.length;
     let valid = 0;
     let warning = 0;
     let errorCount = 0;
 
     rows.forEach((r) => {
+      // keep your old logic but do NOT assume "nama/nik/umur" always exist
       const hasName = r.nama !== undefined ? Boolean(String(r.nama).trim()) : true;
       const hasNik = r.nik !== undefined ? Boolean(String(r.nik).trim()) : true;
-      const hasAge = r.umur !== undefined ? !(r.umur === null || r.umur === "" || Number.isNaN(Number(r.umur))) : true;
+      const hasAge =
+        r.umur !== undefined ? !(r.umur === null || r.umur === "" || Number.isNaN(Number(r.umur))) : true;
 
       if (!(hasName && hasNik && hasAge)) {
         errorCount += 1;
@@ -148,6 +156,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
       const sugar = String(r.gulaDarah ?? "");
       const sys = bp.split("/")[0] ? parseInt(bp.split("/")[0].replace(/\D/g, ""), 10) : NaN;
       const sugarNum = parseInt(sugar.replace(/\D/g, ""), 10);
+
       if ((!Number.isNaN(sys) && sys >= 140) || (!Number.isNaN(sugarNum) && sugarNum >= 180)) {
         warning += 1;
       } else {
@@ -158,7 +167,6 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
     return { total, valid, warning, error: errorCount };
   }, [rows]);
 
-  // editing handlers
   const startEdit = (row: any) => {
     setEditingRowId(row.id);
     setEditDraft({ ...row });
@@ -171,9 +179,9 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
     setIsEditing(false);
   };
 
-  // Save edits: update payload.rows and persist payload shape to sessionStorage
   const saveEdit = () => {
     if (editingRowId === null || !editDraft || !payload) return;
+
     const newRows = payload.rows.map((r) => (r.id === editingRowId ? { ...r, ...editDraft } : r));
     const newPayload: UploadPayload = { ...payload, rows: newRows };
     setPayload(newPayload);
@@ -191,24 +199,24 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
     setTimeout(() => setSuccessMsg(null), 1600);
   };
 
-  // Cancel import: remove sessionStorage and call parent cancel
-  const handleCancelImport = () => {
+  const handleCancelImport = (): void => {
     try {
       sessionStorage.removeItem("previewData");
     } catch (e) {
       console.warn("sessionStorage remove failed", e);
     }
+
     if (typeof onCancel === "function") {
       onCancel();
       return;
     }
+
     setPayload(null);
     setSuccessMsg("Import dibatalkan.");
     setTimeout(() => setSuccessMsg(null), 1600);
   };
 
-  // Confirm import: your real API call should replace the simulated delay
-  const handleConfirmImport = async () => {
+  const handleConfirmImport = async (): Promise<void> => {
     if (!rows || rows.length === 0) {
       setErrorMsg("Tidak ada data untuk diimpor.");
       return;
@@ -217,41 +225,63 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
       setErrorMsg("Beberapa record memiliki kesalahan wajib. Perbaiki sebelum konfirmasi.");
       return;
     }
+
     setLoading(true);
     setErrorMsg(null);
 
     try {
-      // TODO: replace this with your import HTTP request
-      // Example:
-      // await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` }, body: JSON.stringify(rows) });
+      const body = {
+        kabupaten: payload?.kabupaten ?? "",
+        puskesmas: payload?.puskesmas ?? "",
+        bulanTahun: payload?.bulanTahun ?? "",
+        metaPairs: payload?.metaPairs ?? [],
 
-      await new Promise((res) => setTimeout(res, 900));
+        headerKeys: payload?.headerKeys ?? payload?.headerOrder ?? [],
+        headerLabels: payload?.headerLabels ?? [],
+        headerOrder: payload?.headerOrder ?? payload?.headerKeys ?? [],
 
-      setSuccessMsg("Data berhasil diimpor.");
+        rowData: rows,
+
+        fileName: payload?.fileName,
+        sourceSheetName: payload?.sourceSheetName,
+      };
+
+      const base = (import.meta as any).env?.VITE_API_BASE_URL ?? "";
+      const resp = await fetch(`${base}/api/elderly-reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.message ?? "Gagal menyimpan ke database.");
+
+      setSuccessMsg("Data berhasil diimpor ke database.");
       try {
         sessionStorage.removeItem("previewData");
-      } catch (e) { /* ignore */ }
+      } catch {}
+
       if (typeof onDone === "function") onDone();
-    } catch (e) {
+    } catch (e: any) {
       console.error("Import failed", e);
-      setErrorMsg("Gagal mengimpor data. Coba lagi.");
+      setErrorMsg(e?.message ?? "Gagal mengimpor data. Coba lagi.");
     } finally {
       setLoading(false);
     }
   };
 
-  // If no rows/payload: show message
   if (!rows) {
     return (
       <div className="p-6 space-y-6">
         <div>
           <h2 className="text-3xl font-semibold">Preview and Edit Data</h2>
-          <p className="text-xl text-muted-foreground mt-2">Tidak ada data preview. Silakan unggah file terlebih dahulu.</p>
-          {payload?.headerLabels && (
-            <div className="text-sm text-muted-foreground mt-2">
-              File: <strong>{(payload as any)?.fileName ?? sessionStorage.getItem("uploadFileName") ?? "unknown"}</strong>
-            </div>
-          )}
+          <p className="text-xl text-muted-foreground mt-2">
+            Tidak ada data preview. Silakan unggah file terlebih dahulu.
+          </p>
+          <div className="text-sm text-muted-foreground mt-2">
+            File: <strong>{payload?.fileName ?? sessionStorage.getItem("uploadFileName") ?? "unknown"}</strong>
+          </div>
         </div>
         {errorMsg && <div className="text-red-600">{errorMsg}</div>}
         {successMsg && <div className="text-green-600">{successMsg}</div>}
@@ -264,7 +294,17 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-semibold">Preview and Edit Data</h2>
-          <p className="text-xl text-muted-foreground mt-2">Review dan edit data sebelum menyimpan ke sistem</p>
+          <p className="text-xl text-muted-foreground mt-2">
+            Review dan edit data sebelum menyimpan ke sistem
+          </p>
+
+          {/* show meta header */}
+          <div className="mt-3 text-sm text-muted-foreground space-y-1">
+            <div>File: <strong>{payload?.fileName ?? "-"}</strong></div>
+            <div>KABUPATEN: <strong>{payload?.kabupaten ?? "-"}</strong></div>
+            <div>PUSKESMAS: <strong>{payload?.puskesmas ?? "-"}</strong></div>
+            <div>BULAN/TAHUN: <strong>{payload?.bulanTahun ?? "-"}</strong></div>
+          </div>
         </div>
 
         <div className="flex gap-3">
@@ -283,7 +323,6 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
             className="h-12 px-6 text-lg"
             onClick={() => {
               try {
-                // persist current payload to sessionStorage
                 if (payload) sessionStorage.setItem("previewData", JSON.stringify(payload));
                 setSuccessMsg("Perubahan disimpan sementara.");
                 setTimeout(() => setSuccessMsg(null), 1600);
@@ -326,7 +365,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
         </CardContent>
       </Card>
 
-      {/* Dynamic Table (headers use headerLabels, values use headerKeys) */}
+      {/* Dynamic Table */}
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle className="text-2xl">Preview Data Kesehatan</CardTitle>
@@ -351,27 +390,37 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
                     {headerKeys.map((k) => {
                       const cellValue = row[k];
                       const isEditingThisRow = editingRowId === row.id;
+
                       return (
                         <TableCell key={k} className="text-lg">
                           {isEditing && isEditingThisRow ? (
                             (() => {
-                              if (k.toLowerCase().includes("umur") || typeof cellValue === "number") {
+                              const lower = k.toLowerCase();
+                              const isNumberish = lower.includes("umur") || typeof cellValue === "number";
+
+                              if (isNumberish) {
                                 return (
                                   <input
                                     type="number"
                                     className="w-28 border rounded px-2 py-1"
                                     value={String(editDraft?.[k] ?? cellValue ?? "")}
                                     onChange={(e) =>
-                                      setEditDraft((d) => ({ ...(d ?? row), [k]: e.target.value ? Number(e.target.value) : null }))
+                                      setEditDraft((d) => ({
+                                        ...(d ?? row),
+                                        [k]: e.target.value ? Number(e.target.value) : null,
+                                      }))
                                     }
                                   />
                                 );
                               }
+
                               return (
                                 <input
                                   className="w-full border rounded px-2 py-1"
                                   value={String(editDraft?.[k] ?? cellValue ?? "")}
-                                  onChange={(e) => setEditDraft((d) => ({ ...(d ?? row), [k]: e.target.value }))}
+                                  onChange={(e) =>
+                                    setEditDraft((d) => ({ ...(d ?? row), [k]: e.target.value }))
+                                  }
                                 />
                               );
                             })()
@@ -387,7 +436,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
                         {editingRowId === row.id ? (
                           <div className="flex gap-2">
                             <Button size="sm" className="h-8 px-3" onClick={saveEdit}>
-                              <Save className="w-4 h-4" />
+                              <Save className="w-4 h-4 mr-1" />
                               Save
                             </Button>
                             <Button variant="outline" size="sm" className="h-8 px-3" onClick={cancelEdit}>
@@ -417,13 +466,16 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
               <X className="w-5 h-5 mr-2" />
               Batalkan Import
             </Button>
+
             <Button
               size="lg"
               className="h-12 px-8 text-lg"
-              onClick={handleConfirmImport}
+              onClick={() => void handleConfirmImport()}  // ensure TS treats it as void
               disabled={loading || validationResults.error > 0}
             >
-              {loading ? "Memproses..." : (
+              {loading ? (
+                "Memproses..."
+              ) : (
                 <>
                   <CheckCircle className="w-5 h-5 mr-2" />
                   Konfirmasi & Simpan Data
