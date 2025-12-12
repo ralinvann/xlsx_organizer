@@ -6,14 +6,31 @@ import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload";
 
 /**
  * @route POST /api/users/register
- * @desc Register a new user
+ * @desc Register a new user (public/officer only)
+ * NOTE: Do NOT allow role escalation here. Admin/Superadmin creation must go through admin endpoint.
  */
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { firstName, middleName, lastName, email, password, role } = req.body;
+    const firstName = String(req.body.firstName ?? "").trim();
+    const middleName = String(req.body.middleName ?? "").trim();
+    const lastName = String(req.body.lastName ?? "").trim();
+    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const password = String(req.body.password ?? "");
+    // ignore incoming role for safety
+    const role = "officer";
 
     if (!firstName || !lastName || !email || !password) {
       res.status(400).json({ message: "Missing required fields" });
+      return;
+    }
+
+    if (!email.includes("@")) {
+      res.status(400).json({ message: "Invalid email" });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ message: "Password must be at least 8 characters" });
       return;
     }
 
@@ -24,13 +41,14 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 
     const hashed = await hashPassword(password);
+
     const user = await User.create({
       firstName,
-      middleName: middleName ?? "",
+      middleName,
       lastName,
       email,
       password: hashed,
-      role: role ?? "officer",
+      role,
     });
 
     const token = signUser(user);
@@ -48,8 +66,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         createdAt: user.createdAt,
       },
     });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Registration failed", error: String(err) });
+    console.error("register error:", err);
+    res.status(500).json({ message: "Registration failed" });
+    return;
   }
 };
 
@@ -59,7 +80,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const password = String(req.body.password ?? "");
 
     if (!email || !password) {
       res.status(400).json({ message: "Missing credentials" });
@@ -93,8 +115,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         createdAt: user.createdAt,
       },
     });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Login failed", error: String(err) });
+    console.error("login error:", err);
+    res.status(500).json({ message: "Login failed" });
+    return;
   }
 };
 
@@ -104,15 +129,24 @@ export const login = async (req: Request, res: Response): Promise<void> => {
  */
 export const me = async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = await User.findById(req.user!.id).select("-password");
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const user = await User.findById(userId).select("-password");
     if (!user) {
       res.status(404).json({ message: "User not found" });
       return;
     }
 
     res.status(200).json(user);
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Error fetching user", error: String(err) });
+    console.error("me error:", err);
+    res.status(500).json({ message: "Error fetching user" });
+    return;
   }
 };
 
@@ -122,11 +156,24 @@ export const me = async (req: Request, res: Response): Promise<void> => {
  */
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { firstName, middleName, lastName } = req.body;
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const firstName = req.body.firstName !== undefined ? String(req.body.firstName).trim() : undefined;
+    const middleName = req.body.middleName !== undefined ? String(req.body.middleName).trim() : undefined;
+    const lastName = req.body.lastName !== undefined ? String(req.body.lastName).trim() : undefined;
+
+    const $set: Record<string, any> = {};
+    if (firstName !== undefined) $set.firstName = firstName;
+    if (middleName !== undefined) $set.middleName = middleName;
+    if (lastName !== undefined) $set.lastName = lastName;
 
     const updated = await User.findByIdAndUpdate(
-      req.user!.id,
-      { $set: { firstName, middleName, lastName } },
+      userId,
+      { $set },
       { new: true, runValidators: true }
     ).select("-password");
 
@@ -136,8 +183,11 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     }
 
     res.status(200).json(updated);
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Profile update failed", error: String(err) });
+    console.error("updateProfile error:", err);
+    res.status(500).json({ message: "Profile update failed" });
+    return;
   }
 };
 
@@ -147,9 +197,26 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
  */
 export const updatePassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
 
-    const user = await User.findById(req.user!.id);
+    const currentPassword = String(req.body.currentPassword ?? "");
+    const newPassword = String(req.body.newPassword ?? "");
+
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ message: "Missing password fields" });
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      res.status(400).json({ message: "New password must be at least 8 characters" });
+      return;
+    }
+
+    const user = await User.findById(userId);
     if (!user) {
       res.status(404).json({ message: "User not found" });
       return;
@@ -165,8 +232,11 @@ export const updatePassword = async (req: Request, res: Response): Promise<void>
     await user.save();
 
     res.status(200).json({ message: "Password updated successfully" });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Password update failed", error: String(err) });
+    console.error("updatePassword error:", err);
+    res.status(500).json({ message: "Password update failed" });
+    return;
   }
 };
 
@@ -176,6 +246,12 @@ export const updatePassword = async (req: Request, res: Response): Promise<void>
  */
 export const uploadAvatar = async (req: Request, res: Response): Promise<void> => {
   try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
     if (!req.file?.buffer) {
       res.status(400).json({ message: "No file uploaded" });
       return;
@@ -184,14 +260,22 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
     const { url } = await uploadBufferToCloudinary(req.file.buffer, "users/avatars");
 
     const updated = await User.findByIdAndUpdate(
-      req.user!.id,
+      userId,
       { $set: { profilePicture: url } },
-      { new: true }
+      { new: true, runValidators: true }
     ).select("-password");
 
+    if (!updated) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
     res.status(200).json(updated);
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Avatar upload failed", error: String(err) });
+    console.error("uploadAvatar error:", err);
+    res.status(500).json({ message: "Avatar upload failed" });
+    return;
   }
 };
 
@@ -203,8 +287,11 @@ export const listUsers = async (_req: Request, res: Response): Promise<void> => 
   try {
     const users = await User.find().select("-password").sort({ createdAt: -1 });
     res.status(200).json(users);
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Error fetching users", error: String(err) });
+    console.error("listUsers error:", err);
+    res.status(500).json({ message: "Error fetching users" });
+    return;
   }
 };
 
@@ -221,8 +308,11 @@ export const getUser = async (req: Request, res: Response): Promise<void> => {
     }
 
     res.status(200).json(user);
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Error fetching user", error: String(err) });
+    console.error("getUser error:", err);
+    res.status(500).json({ message: "Error fetching user" });
+    return;
   }
 };
 
@@ -232,11 +322,20 @@ export const getUser = async (req: Request, res: Response): Promise<void> => {
  */
 export const updateUserByAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { firstName, middleName, lastName, role } = req.body;
+    const firstName = req.body.firstName !== undefined ? String(req.body.firstName).trim() : undefined;
+    const middleName = req.body.middleName !== undefined ? String(req.body.middleName).trim() : undefined;
+    const lastName = req.body.lastName !== undefined ? String(req.body.lastName).trim() : undefined;
+    const role = req.body.role !== undefined ? String(req.body.role).trim() : undefined;
+
+    const $set: Record<string, any> = {};
+    if (firstName !== undefined) $set.firstName = firstName;
+    if (middleName !== undefined) $set.middleName = middleName;
+    if (lastName !== undefined) $set.lastName = lastName;
+    if (role !== undefined) $set.role = role;
 
     const updated = await User.findByIdAndUpdate(
       req.params.id,
-      { $set: { firstName, middleName, lastName, role } },
+      { $set },
       { new: true, runValidators: true }
     ).select("-password");
 
@@ -246,8 +345,11 @@ export const updateUserByAdmin = async (req: Request, res: Response): Promise<vo
     }
 
     res.status(200).json(updated);
+    return;
   } catch (err) {
-    res.status(500).json({ message: "User update failed", error: String(err) });
+    console.error("updateUserByAdmin error:", err);
+    res.status(500).json({ message: "User update failed" });
+    return;
   }
 };
 
@@ -264,7 +366,10 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
     }
 
     res.status(200).json({ message: "User deleted successfully" });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "User deletion failed", error: String(err) });
+    console.error("deleteUser error:", err);
+    res.status(500).json({ message: "User deletion failed" });
+    return;
   }
 };
