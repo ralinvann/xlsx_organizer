@@ -25,6 +25,12 @@ type UploadPayload = {
 
   fileName?: string;
   sourceSheetName?: string;
+  headerBlock?: {
+    start: number;
+    end: number;
+    rows: any[][];
+    merges: any[];
+  };
 };
 
 export function UploadPage({ onNavigate }: UploadPageProps) {
@@ -52,6 +58,24 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     } catch (e) {
       console.warn("failed reading persisted upload state", e);
     }
+  }, []);
+
+  // listen for reset events coming from other parts of the UI (e.g. preview page cancel)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      // use the setter that persists to sessionStorage
+      setUploadStep(1);
+      setFileName(null);
+      setFileError(null);
+      try {
+        sessionStorage.removeItem("previewData");
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    window.addEventListener("upload-reset", handler as EventListener);
+    return () => window.removeEventListener("upload-reset", handler as EventListener);
   }, []);
 
   const steps = [
@@ -173,7 +197,36 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     }
     return rawAoA.length;
   }
-  // ------------------------------------------------
+
+  function fillMergedCellsFromSheet(ws: XLSX.WorkSheet, aoa: any[][]) {
+    const merges = ws && (ws["!merges"] as any[]) ? (ws["!merges"] as any[]) : [];
+    if (!merges.length) return;
+
+    for (const m of merges) {
+      const s = m.s; // { r: startRow, c: startCol }
+      const e = m.e; // { r: endRow, c: endCol }
+
+      // ensure aoa has enough rows
+      while (aoa.length <= e.r) aoa.push([]);
+
+      // Try to get value from worksheet cell (top-left) first, fallback to aoa
+      const startAddr = XLSX.utils.encode_cell({ r: s.r, c: s.c });
+      const startCell = ws[startAddr];
+      const startVal =
+        startCell && typeof startCell.v !== "undefined" ? startCell.v : (aoa[s.r] && aoa[s.r][s.c]) ?? "";
+
+      for (let r = s.r; r <= e.r; r++) {
+        aoa[r] = aoa[r] || [];
+        for (let c = s.c; c <= e.c; c++) {
+          // if the target cell is empty or undefined, fill with startVal
+          const current = typeof aoa[r][c] !== "undefined" ? aoa[r][c] : "";
+          if (current === "" || current === null || typeof current === "undefined") {
+            aoa[r][c] = startVal;
+          }
+        }
+      }
+    }
+  }
 
   const handleFile = (file: File) => {
     setFileError(null);
@@ -213,27 +266,55 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         // Full sheet AoA
         const rawAoA: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
+        // apply merged-cell propagation so merged ranges show the top-left value in all cells
+        fillMergedCellsFromSheet(worksheet, rawAoA);
+
         // Meta pairs: B2/C2, B3/C3, B4/C4
         const { metaPairs, metaMap } = readMetaPairsFromAoA(rawAoA);
 
-        // Data starts from row 5 (index 4) and stops at Column B == "Diketahui :"
-        const dataStartRowIdx = 4;
-        const stopRowIdx = findStopRowIndex(rawAoA, dataStartRowIdx);
+        // Data stop marker
+        const visibleStartRow = 5; // hide rows 1..5 (1-based). zero-based index 5 is row 6 in Excel.
+        const stopRowIdx = findStopRowIndex(rawAoA, visibleStartRow);
 
-        // Work only inside [row5..stop)
-        const sliced = rawAoA.slice(dataStartRowIdx, stopRowIdx);
+        // Work only inside [visibleStartRow..stop)
+        const sliced = rawAoA.slice(visibleStartRow, stopRowIdx);
 
-        // Detect header row within that slice
-        const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
-        const headerRowIndex = dataStartRowIdx + localHeaderOffset;
+        // Inspect merged ranges to detect a multi-row header block (if present)
+        const allMerges = worksheet["!merges"] || [];
+        // only consider merges that start within the visible header area (after hidden rows)
+        const mergesInTop = (allMerges as any[]).filter((m) => m && typeof m.s?.r === "number" && m.s.r >= visibleStartRow && m.s.r < stopRowIdx);
 
-        const rawHeaderRow = rawAoA[headerRowIndex] ?? [];
-        const headerKeys = normalizeHeaders(rawHeaderRow);
-        const headerLabels: string[] = rawHeaderRow.map((c: any) => cleanCell(c));
+        let headerStart = -1;
+        let headerEnd = -1;
+        if (mergesInTop.length > 0) {
+          headerStart = Math.min(...mergesInTop.map((m) => m.s.r));
+          headerEnd = Math.max(...mergesInTop.map((m) => m.e.r));
+          // guard: keep header block inside visible range
+          if (headerStart < visibleStartRow) headerStart = visibleStartRow;
+          if (headerEnd >= stopRowIdx) headerEnd = stopRowIdx - 1;
+        } else {
+          // fallback: single-row header detection (previous behaviour)
+          const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
+          headerStart = visibleStartRow + localHeaderOffset;
+          headerEnd = headerStart;
+        }
+
+        // bottom-most header row is the last row of the header block
+        const bottomHeaderRowIndex = headerEnd;
+
+        const rawHeaderRow = rawAoA[bottomHeaderRowIndex] ?? [];
+
+        // Trim leading empty columns so header/merge columns align to visible data columns
+        const firstNonEmptyCol = rawHeaderRow.findIndex((c: any) => cleanCell(c) !== "");
+        const leftCol = firstNonEmptyCol >= 0 ? firstNonEmptyCol : 0;
+
+        const trimmedHeaderRow = (rawHeaderRow || []).slice(leftCol);
+        const headerKeys = normalizeHeaders(trimmedHeaderRow);
+        const headerLabels: string[] = trimmedHeaderRow.map((c: any) => cleanCell(c));
         const headerOrder = [...headerKeys];
 
-        // Body rows: from (headerRowIndex+1) to stopRowIdx (exclusive)
-        const bodyAoA = rawAoA.slice(headerRowIndex + 1, stopRowIdx);
+        // Body rows: from (bottomHeaderRowIndex+1) to stopRowIdx (exclusive)
+        const bodyAoA = rawAoA.slice(bottomHeaderRowIndex + 1, stopRowIdx);
 
         // Convert AoA to objects using headerKeys
         const cleanedRows = bodyAoA
@@ -241,7 +322,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           .map((rowArr, idx) => {
             const obj: Record<string, any> = {};
             headerKeys.forEach((k, i) => {
-              const v = rowArr?.[i] ?? "";
+              const v = rowArr?.[leftCol + i] ?? "";
               obj[k] = typeof v === "string" ? v.trim() : v;
             });
             obj.id = `row_${Date.now()}_${idx + 1}`;
@@ -256,6 +337,20 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           return;
         }
 
+        // normalize merges to the trimmed-left column coordinates so preview can render using local indices
+        const rawHeaderBlockRows = rawAoA.slice(headerStart, headerEnd + 1);
+        const normalizedMerges = (mergesInTop || []).map((m: any) => ({
+          s: { r: m.s.r - headerStart, c: m.s.c - leftCol },
+          e: { r: m.e.r - headerStart, c: m.e.c - leftCol },
+        }));
+
+        const headerBlock = {
+          start: headerStart,
+          end: headerEnd,
+          rows: rawHeaderBlockRows.map((r) => (r || []).slice(leftCol)),
+          merges: normalizedMerges,
+        };
+
         const payload: UploadPayload = {
           kabupaten: metaMap.kabupaten ?? "",
           puskesmas: metaMap.puskesmas ?? "",
@@ -269,6 +364,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
 
           fileName: file.name,
           sourceSheetName: sheetName,
+          headerBlock,
         };
 
         // Step -> persist quickly
