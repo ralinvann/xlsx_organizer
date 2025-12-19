@@ -1,18 +1,17 @@
-// middleware/requireAuth.ts
+// middleware/auth.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { UserRole } from "../models/User";
 
-export type AuthUser = {
-  id: string;
-  email: string;
-  role: string;
-  name?: string;
+type JwtPayload = {
+  userId: string;
+  role: UserRole;
 };
 
 declare global {
   namespace Express {
     interface Request {
-      user?: AuthUser;
+      user?: { id: string; role: UserRole };
     }
   }
 }
@@ -23,20 +22,38 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
 
     if (!token) {
-      return res.status(401).json({ message: "Unauthorized (missing token)" });
+      res.status(401).json({ message: "Unauthorized (missing token)" });
+      return;
     }
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-      return res
-        .status(500)
-        .json({ message: "Server misconfigured (JWT_SECRET missing)" });
+      res.status(500).json({ message: "Server misconfigured (JWT_SECRET missing)" });
+      return;
     }
 
-    const decoded = jwt.verify(token, secret) as AuthUser;
-    req.user = decoded;
-    return next();
+    const decoded = jwt.verify(token, secret) as JwtPayload;
+
+    if (!decoded?.userId) {
+      res.status(401).json({ message: "Unauthorized (invalid token payload)" });
+      return;
+    }
+
+    req.user = { id: decoded.userId, role: decoded.role };
+    next();
   } catch {
-    return res.status(401).json({ message: "Unauthorized (invalid token)" });
+    res.status(401).json({ message: "Unauthorized (invalid token)" });
+    return;
   }
+}
+
+export function requireRole(...roles: UserRole[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const role = req.user?.role;
+    if (!role || !roles.includes(role)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+    next();
+  };
 }

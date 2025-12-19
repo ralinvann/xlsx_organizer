@@ -1,44 +1,62 @@
+// controllers/authController.ts
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import User from "../models/User";
+import User, { UserRole } from "../models/User";
 import cloudinary from "../config/cloudinary";
-import { requireAuth } from "../middleware/auth";
+
+type JwtPayload = {
+  userId: string;
+  role: UserRole;
+};
 
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
+function isNonEmptyString(v: any) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
 export const signup = async (req: Request, res: Response): Promise<void> => {
-  const { firstName, lastName, email, password, profilePicture } = req.body;
+  const { firstName, middleName, lastName, email, password, profilePicture } = req.body;
 
   try {
-    const existing = await User.findOne({ email });
+    if (!isNonEmptyString(firstName) || !isNonEmptyString(lastName) || !isNonEmptyString(email) || !isNonEmptyString(password)) {
+      res.status(400).json({ message: "firstName, lastName, email, password wajib." });
+      return;
+    }
+
+    const emailNorm = String(email).toLowerCase().trim();
+
+    const existing = await User.findOne({ email: emailNorm });
     if (existing) {
       res.status(409).json({ message: "User already exists" });
       return;
     }
 
+    // ✅ FIX: upload the incoming string (base64/url) - your previous code uploaded `uploadedPicture` which was ""
     let uploadedPicture = "";
-    if (profilePicture) {
-      const uploadRes = await cloudinary.uploader.upload(uploadedPicture, {
+    if (isNonEmptyString(profilePicture)) {
+      const uploadRes = await cloudinary.uploader.upload(String(profilePicture), {
         folder: "profile_pictures",
         transformation: [{ width: 200, height: 200, crop: "fill" }],
       });
       uploadedPicture = uploadRes.secure_url;
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(String(password), 10);
+
     const user = await User.create({
-      firstName,
-      lastName,
-      email,
+      firstName: String(firstName).trim(),
+      middleName: String(middleName ?? "").trim(),
+      lastName: String(lastName).trim(),
+      email: emailNorm,
       password: hashed,
       role: "officer",
       profilePicture: uploadedPicture,
     });
 
-    // Include userId and role in JWT payload so middleware can extract both
     const token = jwt.sign(
-      { userId: user._id, role: user.role },
+      { userId: user._id.toString(), role: user.role } satisfies JwtPayload,
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -47,16 +65,20 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       message: "User created successfully",
       token,
       user: {
-        id: user._id,
+        id: user._id.toString(),
         firstName: user.firstName,
+        middleName: user.middleName ?? "",
         lastName: user.lastName,
         email: user.email,
         role: user.role,
-        profilePicture: user.profilePicture,
+        profilePicture: user.profilePicture ?? "",
       },
     });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: err });
+    console.error("signup error:", err);
+    res.status(500).json({ message: "Server error" });
+    return;
   }
 };
 
@@ -64,21 +86,27 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
 
   try {
-    const user = await User.findOne({ email });
+    if (!isNonEmptyString(email) || !isNonEmptyString(password)) {
+      res.status(400).json({ message: "Email dan password wajib." });
+      return;
+    }
+
+    const emailNorm = String(email).toLowerCase().trim();
+
+    const user = await User.findOne({ email: emailNorm });
     if (!user) {
       res.status(401).json({ message: "Invalid credentials" });
       return;
     }
 
-    const match = await bcrypt.compare(password, user.password);
+    const match = await bcrypt.compare(String(password), String(user.password));
     if (!match) {
       res.status(401).json({ message: "Invalid credentials" });
       return;
     }
 
-    // Include userId and role in JWT payload
     const token = jwt.sign(
-      { userId: user._id, role: user.role },
+      { userId: user._id.toString(), role: user.role } satisfies JwtPayload,
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -86,16 +114,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({
       token,
       user: {
-        id: user._id,
+        id: user._id.toString(),
         firstName: user.firstName,
+        middleName: user.middleName ?? "",
         lastName: user.lastName,
         email: user.email,
         role: user.role,
-        profilePicture: user.profilePicture,
+        profilePicture: user.profilePicture ?? "",
       },
     });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: err });
+    console.error("login error:", err);
+    res.status(500).json({ message: "Server error" });
+    return;
   }
 };
 
@@ -103,13 +135,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
  * GET /auth/me
  * Return current authenticated user by verifying token
  */
-export const getCurrentUser = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    // requireAuth middleware already attached req.user
-    if (!req.user) {
+    if (!req.user?.id) {
       res.status(401).json({ message: "Unauthorized" });
       return;
     }
@@ -122,16 +150,21 @@ export const getCurrentUser = async (
 
     res.status(200).json({
       user: {
-        id: user._id,
+        id: user._id.toString(),
         firstName: user.firstName,
+        middleName: user.middleName ?? "",
         lastName: user.lastName,
         email: user.email,
         role: user.role,
-        profilePicture: user.profilePicture,
+        profilePicture: user.profilePicture ?? "",
         createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
       },
     });
+    return;
   } catch (err) {
-    res.status(500).json({ message: "Server error", error: err });
+    console.error("getCurrentUser error:", err);
+    res.status(500).json({ message: "Server error" });
+    return;
   }
 };

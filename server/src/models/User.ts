@@ -1,29 +1,41 @@
-import mongoose, { Document, Schema } from "mongoose";
+// models/User.ts
+import mongoose, { Schema, HydratedDocument, Types } from "mongoose";
 
-export interface IUser extends Document {
+export type UserRole = "superadmin" | "admin" | "officer";
+
+export interface IUser {
   firstName: string;
   middleName?: string;
   lastName: string;
   email: string;
   password: string;
-  role: "superadmin" | "admin" | "officer";
+  role: UserRole;
   profilePicture?: string;
-  createdAt: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-const userSchema = new Schema<IUser>({
-  firstName: { type: String, required: true },
-  middleName: { type: String, default: "" }, // optional
-  lastName: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: {
-    type: String,
-    enum: ["superadmin", "admin", "officer"],
-    default: "officer",
-  },
-  profilePicture: { type: String, default: "" },
-  createdAt: { type: Date, default: Date.now },
-});
+// HydratedDocument ensures _id is Types.ObjectId (not unknown)
+export type UserDoc = HydratedDocument<IUser> & { _id: Types.ObjectId };
 
-export default mongoose.model<IUser>("User", userSchema);
+const userSchema = new Schema<IUser>(
+  {
+    firstName: { type: String, required: true },
+    middleName: { type: String, default: "" },
+    lastName: { type: String, required: true },
+    email: { type: String, required: true, unique: true, index: true },
+    password: { type: String, required: true },
+    role: {
+      type: String,
+      enum: ["superadmin", "admin", "officer"],
+      default: "officer",
+    },
+    profilePicture: { type: String, default: "" },
+  },
+  {
+    timestamps: true, // creates createdAt + updatedAt automatically
+  }
+);
+
+const User = mongoose.model<IUser>("User", userSchema);
+export default User;
