@@ -341,7 +341,13 @@ export function PreviewEditPage({
 
       setSuccessMsg("Data berhasil diimpor ke database.");
       sessionStorage.removeItem("previewData");
+
+      try {
+        window.dispatchEvent(new CustomEvent("elderly-reports-updated"));
+      } catch {}
+
       if (typeof onDone === "function") onDone();
+
     } catch (e: any) {
       const msg =
         e?.response?.data?.message ||
