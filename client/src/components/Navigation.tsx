@@ -17,9 +17,9 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
 
   const handleLogout = () => {
     logout();
-    // SPA navigation (no hard reload)
-    onPageChange("login");
-    onShowLogin();
+    // ✅ go to home/dashboard after logout (SPA navigation)
+    onPageChange("dashboard");
+    // ❌ do NOT show login modal/screen automatically
   };
 
   const publicNavItems = [
@@ -39,12 +39,13 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
   const navItems = userStatus === "authenticated" ? authenticatedNavItems : publicNavItems;
 
   const handleNavClick = (itemId: string) => {
-    // If auth still initializing, don't bounce user around
     if (!ready) return;
 
     if (!isAuthed && !["dashboard", "help"].includes(itemId)) {
+      // guest trying to access restricted page => show login UI
       onShowLogin();
-      onPageChange("login");
+      // keep them on dashboard (or you can set "login" if you have a login page)
+      onPageChange("dashboard");
       return;
     }
 
@@ -84,7 +85,8 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
               <Button
                 onClick={() => {
                   onShowLogin();
-                  onPageChange("login");
+                  // optional: keep on dashboard
+                  onPageChange("dashboard");
                 }}
                 size="lg"
                 className="h-12 px-6 text-lg gap-3"
