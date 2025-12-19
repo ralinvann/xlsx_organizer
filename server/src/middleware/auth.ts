@@ -1,13 +1,15 @@
-// middleware/auth.ts
-import { Request, Response, NextFunction } from "express";
+import type { RequestHandler } from "express";
 import jwt from "jsonwebtoken";
-import { UserRole } from "../models/User";
+import type { UserRole } from "../models/User";
+
+const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
 type JwtPayload = {
   userId: string;
   role: UserRole;
 };
 
+// If you already have this in a .d.ts file, keep it there instead.
 declare global {
   namespace Express {
     interface Request {
@@ -16,44 +18,49 @@ declare global {
   }
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+export const requireAuth: RequestHandler = (req, res, next) => {
+  const header = req.headers.authorization;
 
-    if (!token) {
-      res.status(401).json({ message: "Unauthorized (missing token)" });
-      return;
-    }
-
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      res.status(500).json({ message: "Server misconfigured (JWT_SECRET missing)" });
-      return;
-    }
-
-    const decoded = jwt.verify(token, secret) as JwtPayload;
-
-    if (!decoded?.userId) {
-      res.status(401).json({ message: "Unauthorized (invalid token payload)" });
-      return;
-    }
-
-    req.user = { id: decoded.userId, role: decoded.role };
-    next();
-  } catch {
-    res.status(401).json({ message: "Unauthorized (invalid token)" });
+  if (!header?.startsWith("Bearer ")) {
+    res.status(401).json({ message: "Unauthorized" });
     return;
   }
-}
 
-export function requireRole(...roles: UserRole[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  const token = header.slice("Bearer ".length).trim();
+  if (!token) {
+    res.status(401).json({ message: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+
+    req.user = {
+      id: decoded.userId,
+      role: decoded.role,
+    };
+
+    next();
+  } catch {
+    res.status(401).json({ message: "Unauthorized" });
+    return;
+  }
+};
+
+export const requireRole =
+  (...allowed: UserRole[]): RequestHandler =>
+  (req, res, next) => {
     const role = req.user?.role;
-    if (!role || !roles.includes(role)) {
+
+    if (!role) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    if (!allowed.includes(role)) {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
+
     next();
   };
-}

@@ -5,17 +5,14 @@ import {
   getElderlyMonthlyReportById,
   getElderlyMonthlyReportSummary,
 } from "../controllers/elderlyMonthlyReportController";
+import { requireAuth } from "../middleware/auth";
+import { asyncHandler } from "../utils/asyncHandler";
 
 const router = Router();
 
-// summary for dashboard
-router.get("/summary", getElderlyMonthlyReportSummary);
-
-// list + detail
-router.get("/", getElderlyMonthlyReports);
-router.get("/:id", getElderlyMonthlyReportById);
-
-// create (import)
-router.post("/", createElderlyMonthlyReport);
+router.get("/summary", asyncHandler(getElderlyMonthlyReportSummary));
+router.get("/", asyncHandler(getElderlyMonthlyReports));
+router.get("/:id", asyncHandler(getElderlyMonthlyReportById));
+router.post("/", requireAuth, asyncHandler(createElderlyMonthlyReport));
 
 export default router;
