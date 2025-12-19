@@ -15,6 +15,13 @@ export interface IUser {
   createdAt?: string;
 }
 
+/** Helper: accept either { user: IUser } or IUser */
+function extractUser(payload: any): IUser | null {
+  if (!payload) return null;
+  if (payload.user) return payload.user as IUser;
+  return payload as IUser;
+}
+
 export function useAuth() {
   const [user, setUser] = useState<IUser | null>(() => {
     const cached = localStorage.getItem("user");
@@ -40,11 +47,17 @@ export function useAuth() {
     setUser(u);
   }, []);
 
+  /**
+   * LOGIN
+   * Backend expects POST /api/auth/login and returns { token, user }
+   */
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { data } = await api.post("/users/login", { email, password });
-      persist(data.user, data.token);
+      const { data } = await api.post("/auth/login", { email, password });
+      const nextToken = data?.token ?? "";
+      const nextUser = extractUser(data?.user ?? data);
+      persist(nextUser, nextToken);
       setReady(true);
       return { ok: true };
     } catch (e: any) {
@@ -55,18 +68,26 @@ export function useAuth() {
     }
   }, [persist]);
 
+  /**
+   * fetchMe: restore session on page refresh
+   * GET /api/auth/me -> { user }
+   */
   const fetchMe = useCallback(async () => {
     const t = localStorage.getItem("token");
     if (!t) { setReady(true); return; }
 
     setLoading(true);
     try {
-      // IMPORTANT: ensure your api instance attaches Authorization header from localStorage token
-      const { data } = await api.get<IUser>("/users/me");
-      // keep token as-is (but ensure state sync)
-      persist(data, t);
+      const { data } = await api.get("/auth/me");
+      const nextUser = extractUser(data);
+      if (!nextUser) {
+        // backend weirdness -> drop token
+        persist(null, "");
+      } else {
+        persist(nextUser, t);
+      }
     } catch {
-      // token invalid -> drop
+      // invalid token or network error -> drop session
       persist(null, "");
     } finally {
       setLoading(false);
@@ -74,41 +95,48 @@ export function useAuth() {
     }
   }, [persist]);
 
+  /**
+   * updateProfile: PATCH/PUT /api/users/me -> may return { user } or user
+   */
   const updateProfile = useCallback(async (payload: Partial<Pick<IUser, "firstName" | "middleName" | "lastName">>) => {
     setLoading(true);
     try {
-      const { data } = await api.put<IUser>("/users/me", payload);
-      persist(data, token);
-      return { ok: true, user: data };
+      const { data } = await api.put("/users/me", payload);
+      const nextUser = extractUser(data);
+      persist(nextUser, localStorage.getItem("token") || "");
+      return { ok: true, user: nextUser };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Update failed";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);
     }
-  }, [persist, token]);
+  }, [persist]);
 
   const uploadAvatar = useCallback(async (file: File) => {
     setLoading(true);
     try {
       const form = new FormData();
       form.append("avatar", file);
-      const { data } = await api.post<IUser>("/users/me/avatar", form, {
+      const { data } = await api.post("/users/me/avatar", form, {
         headers: { "Content-Type": "multipart/form-data" }
       });
-      persist(data, token);
-      return { ok: true, user: data };
+      const nextUser = extractUser(data);
+      persist(nextUser, localStorage.getItem("token") || "");
+      return { ok: true, user: nextUser };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Upload failed";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);
     }
-  }, [persist, token]);
+  }, [persist]);
 
   const logout = useCallback(() => {
     persist(null, "");
     setReady(true);
+    // optionally: notify other tabs
+    window.dispatchEvent(new Event("auth-logout"));
   }, [persist]);
 
   // Single restore flow

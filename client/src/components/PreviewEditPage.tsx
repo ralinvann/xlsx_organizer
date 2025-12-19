@@ -26,6 +26,12 @@ type UploadPayload = {
 
   fileName?: string;
   sourceSheetName?: string;
+  headerBlock?: {
+    start: number;
+    end: number;
+    rows: any[][];
+    merges: any[];
+  };
 };
 
 type PreviewEditPageProps = {
@@ -203,8 +209,18 @@ export function PreviewEditPage({
   const handleCancelImport = (): void => {
     try {
       sessionStorage.removeItem("previewData");
+      // also clear upload-related persisted state so the step indicator can't stay completed
+      sessionStorage.removeItem("uploadStep");
+      sessionStorage.removeItem("uploadFileName");
     } catch (e) {
       console.warn("sessionStorage remove failed", e);
+    }
+
+    // notify other components (e.g. UploadPage) to reset their in-memory state
+    try {
+      window.dispatchEvent(new CustomEvent("upload-reset", { detail: { timestamp: Date.now() } }));
+    } catch (err) {
+      console.warn("dispatch upload-reset failed", err);
     }
 
     if (typeof onCancel === "function") {
@@ -363,16 +379,90 @@ export function PreviewEditPage({
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  {headerKeys.map((key, i) => (
-                    <TableHead key={key} className="text-lg">
-                      {headerLabels[i] ?? key}
-                    </TableHead>
-                  ))}
-                  {isEditing && <TableHead className="text-lg">Aksi</TableHead>}
-                </TableRow>
-              </TableHeader>
+                <TableHeader>
+                  {payload?.headerBlock ? (
+                    (() => {
+                      const hb = payload.headerBlock!;
+                      const merges = (hb.merges || []).filter((m: any) => m && typeof m.s?.c === "number");
+                      const headerHeight = Math.max(1, (hb.rows || []).length);
+                      const maxCols = headerKeys.length;
+
+                      // merges are normalized to header-local coordinates (rows starting at 0, cols starting at 0)
+                      const visibleMerges = merges.filter((m: any) => {
+                        if (!m) return false;
+                        const startC = Math.max(0, m.s.c);
+                        const endC = m.e.c;
+                        return startC <= maxCols - 1 && endC >= 0 && m.s.r >= 0 && m.e.r < headerHeight;
+                      });
+
+                      const isInsideMerge = (localR: number, localC: number) => {
+                        return visibleMerges.some((m: any) => localR >= m.s.r && localR <= m.e.r && localC >= m.s.c && localC <= m.e.c);
+                      };
+
+                      const getMergeStartingAt = (localR: number, localC: number) => {
+                        return visibleMerges.find((m: any) => m.s.r === localR && m.s.c === localC);
+                      };
+
+                      return Array.from({ length: headerHeight }).map((_, rowIdx) => {
+                          const localRowIdx = rowIdx;
+                          const consumed = new Set<number>();
+                        return (
+                          <TableRow key={`hdr-${rowIdx}`}>
+                              {Array.from({ length: maxCols }).map((__, colIdx) => {
+                                if (consumed.has(colIdx)) return null;
+
+                                const merge = getMergeStartingAt(localRowIdx, colIdx);
+                                if (merge) {
+                                  const startC = Math.max(0, merge.s.c);
+                                  const endC = Math.min(maxCols - 1, merge.e.c);
+                                  const colSpan = Math.max(1, endC - startC + 1);
+                                  const rowSpan = Math.max(1, merge.e.r - merge.s.r + 1);
+                                  for (let cc = startC; cc <= endC; cc++) consumed.add(cc);
+                                  const text = (hb.rows[localRowIdx] && hb.rows[localRowIdx][startC]) ?? "";
+                                  return (
+                                    <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={colSpan} rowSpan={rowSpan} className="text-lg text-center font-bold">
+                                      {String(text ?? "").trim() || ""}
+                                    </TableHead>
+                                  );
+                                }
+
+                                if (isInsideMerge(localRowIdx, colIdx)) {
+                                  // cell is covered by a merge starting on an earlier row/col; skip rendering
+                                  consumed.add(colIdx);
+                                  return null;
+                                }
+
+                                // standalone cell: span remaining header rows vertically
+                                const rowSpan = headerHeight - localRowIdx;
+                                consumed.add(colIdx);
+                                const text = (hb.rows[localRowIdx] && hb.rows[localRowIdx][colIdx]) ?? headerLabels[colIdx] ?? headerKeys[colIdx] ?? "";
+                                return (
+                                  <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={1} rowSpan={rowSpan} className="text-lg text-center font-bold">
+                                    {String(text ?? "").trim() || ""}
+                                  </TableHead>
+                                );
+                              })}
+
+                            {rowIdx === 0 && isEditing && (
+                              <TableHead rowSpan={headerHeight} className="text-lg text-center font-bold">
+                                Aksi
+                              </TableHead>
+                            )}
+                          </TableRow>
+                        );
+                      });
+                    })()
+                  ) : (
+                    <TableRow>
+                      {headerKeys.map((key, i) => (
+                        <TableHead key={key} className="text-lg">
+                          {headerLabels[i] ?? key}
+                        </TableHead>
+                      ))}
+                      {isEditing && <TableHead className="text-lg">Aksi</TableHead>}
+                    </TableRow>
+                  )}
+                </TableHeader>
 
               <TableBody>
                 {rows.map((row) => (
