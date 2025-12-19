@@ -6,45 +6,49 @@ import { useAuth } from "../hooks/useAuth";
 interface NavigationProps {
   currentPage: string;
   onPageChange: (page: string) => void;
-  userStatus: 'guest' | 'authenticated';
   onShowLogin: () => void;
 }
 
-export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin }: NavigationProps) {
-  const { logout } = useAuth();
+export function Navigation({ currentPage, onPageChange, onShowLogin }: NavigationProps) {
+  const { user, ready, logout } = useAuth();
+
+  const isAuthed = !!user;
+  const userStatus = isAuthed ? "authenticated" : "guest";
 
   const handleLogout = () => {
-    try {
-      logout(); // clears localStorage and user state
-    } finally {
-      // Trigger login UI if available, then ensure user lands on login page
-      onShowLogin?.();
-      window.location.href = "/login";
-    }
+    logout();
+    // SPA navigation (no hard reload)
+    onPageChange("login");
+    onShowLogin();
   };
 
   const publicNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: "dashboard", label: "Dashboard", icon: Home },
+    { id: "help", label: "Help", icon: HelpCircle },
   ];
 
   const authenticatedNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'upload', label: 'Upload', icon: Upload },
-    { id: 'preview', label: 'Preview', icon: FileText },
-    { id: 'account', label: 'Account', icon: User },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: "dashboard", label: "Dashboard", icon: Home },
+    { id: "upload", label: "Upload", icon: Upload },
+    { id: "preview", label: "Preview", icon: FileText },
+    { id: "account", label: "Account", icon: User },
+    { id: "users", label: "Users", icon: Users },
+    { id: "help", label: "Help", icon: HelpCircle },
   ];
 
-  const navItems = userStatus === 'authenticated' ? authenticatedNavItems : publicNavItems;
+  const navItems = userStatus === "authenticated" ? authenticatedNavItems : publicNavItems;
 
   const handleNavClick = (itemId: string) => {
-    if (userStatus === 'guest' && !['dashboard', 'help'].includes(itemId)) {
+    // If auth still initializing, don't bounce user around
+    if (!ready) return;
+
+    if (!isAuthed && !["dashboard", "help"].includes(itemId)) {
       onShowLogin();
-    } else {
-      onPageChange(itemId);
+      onPageChange("login");
+      return;
     }
+
+    onPageChange(itemId);
   };
 
   return (
@@ -53,18 +57,38 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin 
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-semibold text-primary">Elder Care</h1>
-            {userStatus === 'guest' && (
+
+            {!ready ? (
+              <Badge variant="outline" className="text-sm px-3 py-1">
+                Checking session…
+              </Badge>
+            ) : userStatus === "guest" ? (
               <Badge variant="outline" className="text-sm px-3 py-1">
                 Guest Mode
               </Badge>
+            ) : (
+              <Badge variant="outline" className="text-sm px-3 py-1">
+                Logged in
+              </Badge>
             )}
           </div>
+
           <div className="flex items-center gap-4">
-            <div className="text-sm text-muted-foreground">
-              Monitoring Kesehatan Lansia
-            </div>
-            {userStatus === 'guest' ? (
-              <Button onClick={onShowLogin} size="lg" className="h-12 px-6 text-lg gap-3">
+            <div className="text-sm text-muted-foreground">Monitoring Kesehatan Lansia</div>
+
+            {!ready ? (
+              <Button size="lg" className="h-12 px-6 text-lg gap-3" disabled>
+                Checking…
+              </Button>
+            ) : userStatus === "guest" ? (
+              <Button
+                onClick={() => {
+                  onShowLogin();
+                  onPageChange("login");
+                }}
+                size="lg"
+                className="h-12 px-6 text-lg gap-3"
+              >
                 <LogIn size={20} />
                 Login
               </Button>
@@ -76,17 +100,20 @@ export function Navigation({ currentPage, onPageChange, userStatus, onShowLogin 
             )}
           </div>
         </div>
+
         <div className="flex flex-wrap gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isRestricted = userStatus === 'guest' && !['dashboard', 'help'].includes(item.id);
+            const isRestricted = userStatus === "guest" && !["dashboard", "help"].includes(item.id);
+
             return (
               <Button
                 key={item.id}
                 variant={currentPage === item.id ? "default" : "outline"}
                 size="lg"
                 onClick={() => handleNavClick(item.id)}
-                className={`h-12 px-6 text-lg gap-3 ${isRestricted ? 'opacity-60' : ''}`}
+                className={`h-12 px-6 text-lg gap-3 ${isRestricted ? "opacity-60" : ""}`}
+                disabled={!ready}
               >
                 <Icon size={20} />
                 {item.label}

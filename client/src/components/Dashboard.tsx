@@ -6,10 +6,16 @@ import { Users, Activity, AlertTriangle, TrendingUp, Calendar, MapPin, Lock, Eye
 
 interface DashboardProps {
   userStatus: "guest" | "authenticated";
+  ready?: boolean;
   onLoginClick?: () => void;
 }
 
-export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
+export function Dashboard({ userStatus, ready = true, onLoginClick }: DashboardProps) {
+  if (!ready) {
+    return <div className="p-6 text-muted-foreground">Memuat sesi…</div>;
+  }
+
+  // ... keep your existing component as-is below
   const stats = [
     {
       title: "Jumlah Lansia Diukur",
@@ -80,11 +86,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
           <Eye className="h-5 w-5 text-primary" />
           <AlertDescription className="text-lg">
             Anda sedang dalam mode guest. Beberapa data dibatasi untuk melindungi privasi pasien.
-            <Button
-              variant="link"
-              className="p-0 h-auto ml-2 text-primary"
-              onClick={() => onLoginClick?.()}
-            >
+            <Button variant="link" className="p-0 h-auto ml-2 text-primary" onClick={() => onLoginClick?.()}>
               Login untuk akses penuh
             </Button>
           </AlertDescription>
@@ -153,7 +155,10 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
         <CardContent>
           <div className="space-y-4">
             {recentActivities.map((activity, index) => (
-              <div key={index} className="border-l-4 border-primary pl-6 py-4 bg-secondary/30 rounded-r-lg relative">
+              <div
+                key={index}
+                className="border-l-4 border-primary pl-6 py-4 bg-secondary/30 rounded-r-lg relative"
+              >
                 {activity.restricted && (
                   <div className="absolute top-2 right-2">
                     <Lock className="w-4 h-4 text-muted-foreground" />

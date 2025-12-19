@@ -103,12 +103,7 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
                 </Button>
               </div>
 
-              <Button
-                onClick={() => void handleSubmit()}
-                className="w-full h-14 text-xl"
-                size="lg"
-                disabled={loading}
-              >
+              <Button onClick={() => void handleSubmit()} className="w-full h-14 text-xl" size="lg" disabled={loading}>
                 {loading ? "Memproses…" : "Masuk ke Sistem"}
               </Button>
 
@@ -122,13 +117,7 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
             <div className="pt-4 border-t border-border">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground mb-3">atau akses sebagai guest (akses terbatas)</p>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="w-full h-12 text-lg"
-                  onClick={onGuest}
-                  disabled={loading}
-                >
+                <Button variant="outline" size="lg" className="w-full h-12 text-lg" onClick={onGuest} disabled={loading}>
                   Kembali ke Dashboard
                 </Button>
               </div>
