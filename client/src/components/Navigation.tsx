@@ -15,11 +15,15 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
   const isAuthed = !!user;
   const userStatus = isAuthed ? "authenticated" : "guest";
 
+  const goLogin = () => {
+    // Ensure the UI actually renders login
+    onPageChange("login");  // IMPORTANT: your App must render <LoginScreen/> when currentPage === "login"
+    onShowLogin();          // if you're using a modal, keep this too; harmless if not
+  };
+
   const handleLogout = () => {
     logout();
-    // ✅ go to home/dashboard after logout (SPA navigation)
     onPageChange("dashboard");
-    // ❌ do NOT show login modal/screen automatically
   };
 
   const publicNavItems = [
@@ -41,11 +45,10 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
   const handleNavClick = (itemId: string) => {
     if (!ready) return;
 
-    if (!isAuthed && !["dashboard", "help"].includes(itemId)) {
-      // guest trying to access restricted page => show login UI
-      onShowLogin();
-      // keep them on dashboard (or you can set "login" if you have a login page)
-      onPageChange("dashboard");
+    const isPublic = ["dashboard", "help"].includes(itemId);
+
+    if (!isAuthed && !isPublic) {
+      goLogin();
       return;
     }
 
@@ -57,7 +60,14 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-semibold text-primary">Elder Care</h1>
+            {/* Make title clickable => go home */}
+            <button
+              type="button"
+              onClick={() => onPageChange("dashboard")}
+              className="text-2xl font-semibold text-primary hover:opacity-90"
+            >
+              Elder Care
+            </button>
 
             {!ready ? (
               <Badge variant="outline" className="text-sm px-3 py-1">
@@ -82,15 +92,7 @@ export function Navigation({ currentPage, onPageChange, onShowLogin }: Navigatio
                 Checking…
               </Button>
             ) : userStatus === "guest" ? (
-              <Button
-                onClick={() => {
-                  onShowLogin();
-                  // optional: keep on dashboard
-                  onPageChange("dashboard");
-                }}
-                size="lg"
-                className="h-12 px-6 text-lg gap-3"
-              >
+              <Button onClick={goLogin} size="lg" className="h-12 px-6 text-lg gap-3">
                 <LogIn size={20} />
                 Login
               </Button>

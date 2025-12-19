@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigation } from "./components/Navigation";
 import { LoginScreen } from "./components/LoginScreen";
 import { Dashboard } from "./components/Dashboard";
@@ -6,14 +6,32 @@ import { UploadPage } from "./components/UploadPage";
 import { PreviewEditPage } from "./components/PreviewEditPage";
 import { UserProfile } from "./components/UserProfile";
 import { AdminPage } from "./components/AdminPage";
+import { useAuth } from "./hooks/useAuth";
 
-type UserStatus = "guest" | "authenticated";
+type Page = "dashboard" | "login" | "upload" | "preview" | "account" | "users" | "help";
+
+const PUBLIC_PAGES: Page[] = ["dashboard", "help", "login"];
+const PROTECTED_PAGES: Page[] = ["upload", "preview", "account", "users"];
+
+function isProtectedPage(p: Page) {
+  return (PROTECTED_PAGES as string[]).includes(p);
+}
 
 export default function App() {
-  const [userStatus, setUserStatus] = useState<UserStatus>("guest");
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const { user, ready } = useAuth();
+
+  const isAuthed = !!user;
+  const userStatus = isAuthed ? "authenticated" : "guest";
+
+  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [previewData, setPreviewData] = useState<any>(null);
 
+  // --- Centralized navigation helper (prevents invalid pages) ---
+  const navigate = useCallback((page: Page) => {
+    setCurrentPage(page);
+  }, []);
+
+  // --- Event: preview-ready (from Upload flow) ---
   useEffect(() => {
     const handler = () => {
       try {
@@ -21,7 +39,7 @@ export default function App() {
         if (!raw) return;
         const parsed = JSON.parse(raw);
 
-        // IMPORTANT: keep the full payload, not just rows
+        // keep full payload
         setPreviewData(parsed);
         setCurrentPage("preview");
       } catch (e) {
@@ -33,64 +51,101 @@ export default function App() {
     return () => window.removeEventListener("preview-ready", handler);
   }, []);
 
-  const renderCurrentPage = () => {
+  // --- Restore preview payload if user refreshes on preview page ---
+  useEffect(() => {
+    if (currentPage !== "preview") return;
+
+    // If no local state, try sessionStorage
+    if (previewData) return;
+
+    try {
+      const raw = sessionStorage.getItem("previewData");
+      if (!raw) return;
+      setPreviewData(JSON.parse(raw));
+    } catch (e) {
+      console.warn("Failed to restore previewData from sessionStorage", e);
+    }
+  }, [currentPage, previewData]);
+
+  // --- Route guard: if user is guest and tries to access protected page, go login ---
+  useEffect(() => {
+    if (!ready) return; // wait for session check to complete
+
+    if (!isAuthed && isProtectedPage(currentPage)) {
+      setCurrentPage("login");
+    }
+  }, [ready, isAuthed, currentPage]);
+
+  // --- If user becomes authed while on login, bounce to dashboard ---
+  useEffect(() => {
+    if (!ready) return;
+    if (isAuthed && currentPage === "login") {
+      setCurrentPage("dashboard");
+    }
+  }, [ready, isAuthed, currentPage]);
+
+  const renderCurrentPage = useMemo(() => {
+    // While checking session, keep UI stable (prevents flicker/redirect loops)
+    if (!ready) {
+      return (
+        <div className="p-6 text-muted-foreground">
+          Memuat sesi…
+        </div>
+      );
+    }
+
     switch (currentPage) {
       case "login":
         return (
           <LoginScreen
             onLogin={() => {
-              setUserStatus("authenticated");
+              // useAuth will update user automatically
               setCurrentPage("dashboard");
             }}
+            onBack={() => setCurrentPage("dashboard")}
           />
         );
 
       case "dashboard":
-        return <Dashboard userStatus={userStatus} />;
+        return <Dashboard userStatus={userStatus} onLoginClick={() => setCurrentPage("login")} />;
 
       case "upload":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
+        // guard handled in effect; just render if reached
         return (
           <UploadPage
-            onNavigate={(page, state) => {
+            onNavigate={(page: string, state?: any) => {
               if (page === "preview") {
-                setPreviewData(state?.data ?? null);
+                const data = state?.data ?? null;
+                setPreviewData(data);
                 setCurrentPage("preview");
-              } else {
-                setCurrentPage(page);
+                return;
+              }
+              // allow only known pages
+              if (PUBLIC_PAGES.includes(page as Page) || PROTECTED_PAGES.includes(page as Page)) {
+                setCurrentPage(page as Page);
               }
             }}
           />
         );
 
       case "preview":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return (
           <PreviewEditPage
             initialData={previewData}
-            onDone={() => setCurrentPage("dashboard")}
-            onCancel={() => setCurrentPage("upload")}
+            onDone={() => {
+              setPreviewData(null);
+              setCurrentPage("dashboard");
+            }}
+            onCancel={() => {
+              setCurrentPage("upload");
+            }}
           />
         );
 
       case "account":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return <UserProfile />;
 
       case "users":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return <AdminPage />;
 
       case "help":
@@ -125,22 +180,23 @@ export default function App() {
         );
 
       default:
-        return <Dashboard userStatus={userStatus} />;
+        return <Dashboard userStatus={userStatus} onLoginClick={() => setCurrentPage("login")} />;
     }
-  };
+  }, [ready, currentPage, previewData, userStatus]);
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Keep navigation hidden on login page (your preference) */}
       {currentPage !== "login" && (
         <Navigation
           currentPage={currentPage}
-          onPageChange={setCurrentPage}
-          userStatus={userStatus}
+          onPageChange={(p) => navigate(p as Page)}
           onShowLogin={() => setCurrentPage("login")}
         />
       )}
+
       <main className={currentPage === "login" ? "" : "max-w-7xl mx-auto"}>
-        {renderCurrentPage()}
+        {renderCurrentPage}
       </main>
     </div>
   );
