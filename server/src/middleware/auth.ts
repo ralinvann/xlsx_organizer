@@ -1,3 +1,4 @@
+// middleware/requireAuth.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
@@ -27,12 +28,14 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-      return res.status(500).json({ message: "Server misconfigured (JWT_SECRET missing)" });
+      return res
+        .status(500)
+        .json({ message: "Server misconfigured (JWT_SECRET missing)" });
     }
 
     const decoded = jwt.verify(token, secret) as AuthUser;
     req.user = decoded;
-    next();
+    return next();
   } catch {
     return res.status(401).json({ message: "Unauthorized (invalid token)" });
   }

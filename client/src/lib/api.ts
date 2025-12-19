@@ -1,20 +1,11 @@
 // src/lib/api.ts
-import axios, { AxiosError, AxiosRequestConfig } from "axios";
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
-/**
- * Resolve API base URL safely:
- * 1. VITE_API_BASE (preferred)
- * 2. localhost fallback
- * 3. production fallback
- */
 function resolveBaseUrl(): string {
-
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") {
     return "http://localhost:3001/api";
   }
-
-  // production default
   return "https://xlsx-organizer-server.onrender.com/api";
 }
 
@@ -26,8 +17,7 @@ export const api = axios.create({
 });
 
 /* ---------------- REQUEST INTERCEPTOR ---------------- */
-
-api.interceptors.request.use((config) => {
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem("token");
   if (token) {
     config.headers = config.headers ?? {};
@@ -37,17 +27,19 @@ api.interceptors.request.use((config) => {
 });
 
 /* ---------------- RESPONSE INTERCEPTOR ---------------- */
-
 api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
-    const original = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
+
+    // If config missing, just throw
     if (!original) throw error;
 
     // Retry once on network / timeout errors
     const isNetworkError =
       error.code === "ECONNABORTED" ||
-      error.message?.includes("Network Error");
+      (typeof error.message === "string" && error.message.includes("Network Error")) ||
+      (!error.response && !!error.request); // request made, no response
 
     if (isNetworkError && !original._retry) {
       original._retry = true;
@@ -58,8 +50,6 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
-
-      // optional but recommended
       window.dispatchEvent(new Event("auth-logout"));
     }
 
