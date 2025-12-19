@@ -54,7 +54,10 @@ type HeaderCell = {
   hidden: boolean;
 };
 
-// ---- Robust merged header builder ----
+/* =========================
+   MERGED HEADER UTILITIES
+========================= */
+
 function safeStr(v: any) {
   return String(v ?? "").trim();
 }
@@ -69,6 +72,7 @@ function normalizeAndClampMerges(
   maxCols: number
 ) {
   const out: any[] = [];
+
   for (const m of merges || []) {
     if (!m?.s || !m?.e) continue;
     if (typeof m.s.r !== "number" || typeof m.s.c !== "number") continue;
@@ -96,7 +100,7 @@ function normalizeAndClampMerges(
     out.push({ s: { r: sr, c: sc }, e: { r: er, c: ec } });
   }
 
-  // sort bigger merges first to avoid “nested-like” conflicts
+  // bigger merges first to reduce overlap issues
   out.sort((a, b) => {
     const areaA = (a.e.r - a.s.r + 1) * (a.e.c - a.s.c + 1);
     const areaB = (b.e.r - b.s.r + 1) * (b.e.c - b.s.c + 1);
@@ -118,13 +122,11 @@ function buildHeaderGrid(args: {
   const headerHeight = Math.max(1, hbRows?.length || 1);
   const maxCols = Math.max(1, headerKeys?.length || 1);
 
-  // init grid with plain cells
   const grid: HeaderCell[][] = Array.from({ length: headerHeight }).map((_, r) =>
     Array.from({ length: maxCols }).map((__, c) => {
-      // default: take actual header block cell
       let text = safeStr(hbRows?.[r]?.[c] ?? "");
 
-      // if bottom row is empty, fallback to headerLabels/Keys
+      // fallback: only for bottom row
       if (!text && r === headerHeight - 1) {
         text = safeStr(headerLabels?.[c] ?? headerKeys?.[c] ?? "");
       }
@@ -133,7 +135,6 @@ function buildHeaderGrid(args: {
     })
   );
 
-  // occupancy map: true if cell already hidden by a merge
   const covered: boolean[][] = Array.from({ length: headerHeight }).map(() =>
     Array.from({ length: maxCols }).map(() => false)
   );
@@ -146,10 +147,10 @@ function buildHeaderGrid(args: {
     const er = m.e.r;
     const ec = m.e.c;
 
-    // if top-left already covered by a previous merge, skip this merge
+    // already covered => skip
     if (covered[sr]?.[sc]) continue;
 
-    // detect overlap conflicts: if any cell is already covered, skip (keeps layout sane)
+    // overlap conflict => skip
     let conflict = false;
     for (let r = sr; r <= er; r++) {
       for (let c = sc; c <= ec; c++) {
@@ -162,22 +163,22 @@ function buildHeaderGrid(args: {
     }
     if (conflict) continue;
 
-    // apply merge: top-left spans; others hidden
     grid[sr][sc].rowSpan = er - sr + 1;
     grid[sr][sc].colSpan = ec - sc + 1;
 
-    // prefer top-left text if empty: try find any text inside the region
+    // if top-left text empty, pick first non-empty in region
     if (!grid[sr][sc].text) {
-      for (let r = sr; r <= er; r++) {
+      let found = "";
+      for (let r = sr; r <= er && !found; r++) {
         for (let c = sc; c <= ec; c++) {
           const t = safeStr(hbRows?.[r]?.[c] ?? "");
           if (t) {
-            grid[sr][sc].text = t;
-            r = er + 1;
+            found = t;
             break;
           }
         }
       }
+      if (found) grid[sr][sc].text = found;
     }
 
     for (let r = sr; r <= er; r++) {
@@ -189,11 +190,12 @@ function buildHeaderGrid(args: {
     }
   }
 
-  // optional: hide truly blank header cells that are not merged (but keep bottom row fallbacks)
-  // (leave as-is for now, since some templates intentionally have blanks)
-
   return { grid, headerHeight, maxCols };
 }
+
+/* =========================
+   COMPONENT
+========================= */
 
 export function PreviewEditPage({
   initialData = null,
@@ -213,17 +215,17 @@ export function PreviewEditPage({
   function payloadFromArray(arr: any[]): UploadPayload {
     const rows = (arr || []).map((r: any, i: number) => {
       const obj = { ...r };
-      if (obj.id === undefined || obj.id === null)
-        obj.id = `row_${Date.now()}_${i + 1}`;
+      if (obj.id === undefined || obj.id === null) obj.id = `row_${Date.now()}_${i + 1}`;
       Object.keys(obj).forEach((k) => {
         if (typeof obj[k] === "string") obj[k] = obj[k].trim();
       });
       return obj;
     });
-    const headerKeys =
-      rows.length > 0 ? Object.keys(rows[0]).filter((k) => k !== "id") : [];
+
+    const headerKeys = rows.length > 0 ? Object.keys(rows[0]).filter((k) => k !== "id") : [];
     const headerLabels = headerKeys.map((k) => String(k).toUpperCase());
     const headerOrder = [...headerKeys];
+
     return { rows, headerKeys, headerLabels, headerOrder };
   }
 
@@ -234,8 +236,7 @@ export function PreviewEditPage({
     if (payloadOrArray.rows && (payloadOrArray.headerKeys || payloadOrArray.headerOrder)) {
       const rows = (payloadOrArray.rows || []).map((r: any, i: number) => {
         const obj = { ...r };
-        if (obj.id === undefined || obj.id === null)
-          obj.id = `row_${Date.now()}_${i + 1}`;
+        if (obj.id === undefined || obj.id === null) obj.id = `row_${Date.now()}_${i + 1}`;
         Object.keys(obj).forEach((k) => {
           if (typeof obj[k] === "string") obj[k] = obj[k].trim();
         });
@@ -256,6 +257,7 @@ export function PreviewEditPage({
         headerOrder,
       };
     }
+
     return null;
   }
 
@@ -296,9 +298,13 @@ export function PreviewEditPage({
 
   const rows = payload?.rows ?? null;
   const headerKeys = payload?.headerOrder ?? payload?.headerKeys ?? [];
-  const headerLabels = payload?.headerLabels ?? headerKeys.map((k) => String(k).toUpperCase());
+  const headerLabels =
+    payload?.headerLabels ?? headerKeys.map((k) => String(k).toUpperCase());
 
-  // -------- helpers for validation ----------
+  /* =========================
+     VALIDATION HELPERS
+  ========================= */
+
   const toStr = (v: any) => String(v ?? "").trim();
   const hasValue = (v: any) => toStr(v) !== "";
   const parseNumberSafe = (v: any) => {
@@ -320,7 +326,14 @@ export function PreviewEditPage({
     const r0 = rows[0];
 
     const namaKey = pickField(r0, ["nama", "nama_lengkap", "nama lengkap", "name"]);
-    const nikKey = pickField(r0, ["nik", "no_ktp", "nomor_ktp", "ktp", "no_ktpnik", "nomor ktp/nik"]);
+    const nikKey = pickField(r0, [
+      "nik",
+      "no_ktp",
+      "nomor_ktp",
+      "ktp",
+      "no_ktpnik",
+      "nomor ktp/nik",
+    ]);
     const umurKey = pickField(r0, ["umur", "usia", "age"]);
     const bpKey = pickField(r0, ["tekanandarah", "tekanan_darah", "td", "blood_pressure"]);
     const gulaKey = pickField(r0, ["guladarah", "gula_darah", "gds", "blood_sugar"]);
@@ -396,6 +409,27 @@ export function PreviewEditPage({
     [validationResults.issues]
   );
 
+  /* =========================
+     ✅ FIX: HEADER MEMO MUST BE ABOVE ANY EARLY RETURN
+  ========================= */
+
+  const headerRender = useMemo(() => {
+    if (!payload?.headerBlock) return null;
+    if (!headerKeys?.length) return null;
+
+    const hb = payload.headerBlock;
+    return buildHeaderGrid({
+      hbRows: hb.rows || [],
+      merges: hb.merges || [],
+      headerKeys,
+      headerLabels,
+    });
+  }, [payload?.headerBlock, headerKeys, headerLabels]);
+
+  /* =========================
+     EDITING
+  ========================= */
+
   const startEdit = (row: any) => {
     setEditingRowId(row.id);
     setEditDraft({ ...row });
@@ -427,6 +461,10 @@ export function PreviewEditPage({
     setSuccessMsg("Perubahan disimpan sementara.");
     setTimeout(() => setSuccessMsg(null), 1600);
   };
+
+  /* =========================
+     ACTIONS
+  ========================= */
 
   const handleCancelImport = (): void => {
     try {
@@ -492,15 +530,16 @@ export function PreviewEditPage({
 
       if (typeof onDone === "function") onDone();
     } catch (e: any) {
-      const msg =
-        e?.response?.data?.message ||
-        e?.message ||
-        "Gagal mengimpor data. Coba lagi.";
+      const msg = e?.response?.data?.message || e?.message || "Gagal mengimpor data. Coba lagi.";
       setErrorMsg(msg);
     } finally {
       setLoading(false);
     }
   };
+
+  /* =========================
+     EARLY UI STATES (SAFE NOW)
+  ========================= */
 
   if (!rows) {
     return (
@@ -523,18 +562,9 @@ export function PreviewEditPage({
     );
   }
 
-  // prebuild header grid once
-  const headerRender = useMemo(() => {
-    if (!payload?.headerBlock) return null;
-    const hb = payload.headerBlock;
-    return buildHeaderGrid({
-      hbRows: hb.rows || [],
-      merges: hb.merges || [],
-      headerKeys,
-      headerLabels,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payload?.headerBlock, headerKeys.join("|"), headerLabels.join("|")]);
+  /* =========================
+     RENDER
+  ========================= */
 
   return (
     <div className="p-6 space-y-8">
@@ -546,10 +576,18 @@ export function PreviewEditPage({
           </p>
 
           <div className="mt-3 text-sm text-muted-foreground space-y-1">
-            <div>File: <strong>{payload?.fileName ?? "-"}</strong></div>
-            <div>KABUPATEN: <strong>{payload?.kabupaten ?? "-"}</strong></div>
-            <div>PUSKESMAS: <strong>{payload?.puskesmas ?? "-"}</strong></div>
-            <div>BULAN/TAHUN: <strong>{payload?.bulanTahun ?? "-"}</strong></div>
+            <div>
+              File: <strong>{payload?.fileName ?? "-"}</strong>
+            </div>
+            <div>
+              KABUPATEN: <strong>{payload?.kabupaten ?? "-"}</strong>
+            </div>
+            <div>
+              PUSKESMAS: <strong>{payload?.puskesmas ?? "-"}</strong>
+            </div>
+            <div>
+              BULAN/TAHUN: <strong>{payload?.bulanTahun ?? "-"}</strong>
+            </div>
           </div>
         </div>
 
@@ -666,37 +704,34 @@ export function PreviewEditPage({
                   (() => {
                     const { grid, headerHeight, maxCols } = headerRender;
 
-                    return Array.from({ length: headerHeight }).map((_, r) => {
-                      return (
-                        <TableRow key={`hdr-${r}`}>
-                          {Array.from({ length: maxCols }).map((__, c) => {
-                            const cell = grid[r][c];
-                            if (cell.hidden) return null;
+                    return Array.from({ length: headerHeight }).map((_, r) => (
+                      <TableRow key={`hdr-${r}`}>
+                        {Array.from({ length: maxCols }).map((__, c) => {
+                          const cell = grid[r][c];
+                          if (cell.hidden) return null;
 
-                            // if text is empty, still render to preserve structure
-                            return (
-                              <TableHead
-                                key={`h-${r}-${c}`}
-                                colSpan={cell.colSpan}
-                                rowSpan={cell.rowSpan}
-                                className="text-lg text-center font-bold whitespace-pre-line"
-                              >
-                                {cell.text || ""}
-                              </TableHead>
-                            );
-                          })}
-
-                          {r === 0 && isEditing && (
+                          return (
                             <TableHead
-                              rowSpan={headerHeight}
-                              className="text-lg text-center font-bold"
+                              key={`h-${r}-${c}`}
+                              colSpan={cell.colSpan}
+                              rowSpan={cell.rowSpan}
+                              className="text-lg text-center font-bold whitespace-pre-line"
                             >
-                              Aksi
+                              {cell.text || ""}
                             </TableHead>
-                          )}
-                        </TableRow>
-                      );
-                    });
+                          );
+                        })}
+
+                        {r === 0 && isEditing && (
+                          <TableHead
+                            rowSpan={headerHeight}
+                            className="text-lg text-center font-bold"
+                          >
+                            Aksi
+                          </TableHead>
+                        )}
+                      </TableRow>
+                    ));
                   })()
                 ) : (
                   <TableRow>
@@ -722,9 +757,7 @@ export function PreviewEditPage({
                   return (
                     <TableRow
                       key={String(row.id)}
-                      className={
-                        rowHasError ? "bg-red-50" : rowHasWarning ? "bg-yellow-50" : undefined
-                      }
+                      className={rowHasError ? "bg-red-50" : rowHasWarning ? "bg-yellow-50" : undefined}
                     >
                       {headerKeys.map((k) => {
                         const cellValue = row[k];
@@ -735,8 +768,7 @@ export function PreviewEditPage({
                             {isEditing && isEditingThisRow ? (
                               (() => {
                                 const lower = k.toLowerCase();
-                                const isNumberish =
-                                  lower.includes("umur") || typeof cellValue === "number";
+                                const isNumberish = lower.includes("umur") || typeof cellValue === "number";
 
                                 if (isNumberish) {
                                   return (
@@ -779,12 +811,7 @@ export function PreviewEditPage({
                                 <Save className="w-4 h-4 mr-1" />
                                 Save
                               </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 px-3"
-                                onClick={cancelEdit}
-                              >
+                              <Button variant="outline" size="sm" className="h-8 px-3" onClick={cancelEdit}>
                                 Batal
                               </Button>
                             </div>
@@ -799,11 +826,7 @@ export function PreviewEditPage({
                                 <Edit3 className="w-4 h-4" />
                               </Button>
                               {(rowHasError || rowHasWarning) && (
-                                <span
-                                  className={
-                                    rowHasError ? "text-red-700 text-sm" : "text-yellow-800 text-sm"
-                                  }
-                                >
+                                <span className={rowHasError ? "text-red-700 text-sm" : "text-yellow-800 text-sm"}>
                                   {rowHasError ? "ERROR" : "WARNING"} #{rowIndex}
                                 </span>
                               )}

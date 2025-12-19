@@ -1,3 +1,4 @@
+// src/hooks/useAuth.tsx
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 
@@ -22,10 +23,10 @@ type AuthContextValue = {
   loading: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
-  refreshMe: () => Promise<void>;
+  setUser: (u: AuthUser | null) => void;
 };
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function safeParseUser(s: string | null): AuthUser | null {
   if (!s) return null;
@@ -34,131 +35,112 @@ function safeParseUser(s: string | null): AuthUser | null {
     const id = String(parsed?.id ?? "");
     const email = String(parsed?.email ?? "");
     if (!id || !email) return null;
-    return {
-      id,
-      email,
-      role: parsed?.role,
-      name: parsed?.name,
-      firstName: parsed?.firstName,
-      lastName: parsed?.lastName,
-      profilePicture: parsed?.profilePicture,
-    };
+    return parsed as AuthUser;
   } catch {
     return null;
   }
 }
 
-function normalizeBackendUser(backendUser: any): AuthUser | null {
-  if (!backendUser) return null;
-
-  const id = String(backendUser.id ?? backendUser._id ?? "");
-  const email = String(backendUser.email ?? "");
+function normalizeBackendUser(u: any): AuthUser | null {
+  if (!u) return null;
+  const id = String(u.id ?? u._id ?? "");
+  const email = String(u.email ?? "");
   if (!id || !email) return null;
 
   return {
     id,
     email,
-    role: backendUser.role,
-    name: backendUser.name,
-    firstName: backendUser.firstName,
-    lastName: backendUser.lastName,
-    profilePicture: backendUser.profilePicture,
+    role: u.role,
+    name: u.name,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    profilePicture: u.profilePicture,
   };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => safeParseUser(localStorage.getItem("user")));
+  const [user, setUserState] = useState<AuthUser | null>(() => safeParseUser(localStorage.getItem("user")));
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const token = useMemo(() => localStorage.getItem("token"), [user]);
 
-  const persistUser = useCallback((u: AuthUser | null) => {
+  const setUser = useCallback((u: AuthUser | null) => {
     if (!u) {
       localStorage.removeItem("user");
-      setUser(null);
+      setUserState(null);
       return;
     }
     localStorage.setItem("user", JSON.stringify(u));
-    setUser(u);
+    setUserState(u);
   }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    setUser(null);
-    // inform the rest of the app
+    setUserState(null);
     window.dispatchEvent(new Event("auth-logout"));
   }, []);
 
-  const refreshMe = useCallback(async () => {
-    const t = localStorage.getItem("token");
-    if (!t) {
-      persistUser(null);
-      return;
-    }
-
-    // validate token + rehydrate user from backend
-    const { data } = await api.get("/auth/me");
-    const u = normalizeBackendUser(data?.user);
-
-    if (!u) {
-      logout();
-      return;
-    }
-
-    persistUser(u);
-  }, [logout, persistUser]);
-
-  // Single init on app load (the whole point of Provider)
+  // Restore + validate token on refresh
   useEffect(() => {
     let mounted = true;
 
-    (async () => {
+    const init = async () => {
+      const t = localStorage.getItem("token");
+
+      // no token = guest
+      if (!t) {
+        if (!mounted) return;
+        setUser(null);
+        setReady(true);
+        return;
+      }
+
+      // token exists: try validate with backend
       try {
-        const t = localStorage.getItem("token");
-        if (!t) {
-          if (!mounted) return;
-          persistUser(null);
+        const { data } = await api.get("/auth/me");
+        if (!mounted) return;
+
+        const backendUser = normalizeBackendUser(data?.user);
+        if (!backendUser) {
+          // token invalid -> logout
+          logout();
           setReady(true);
           return;
         }
 
-        // If backend is down, do NOT wipe the cached session here.
-        // Only wipe session if backend returns 401 (api interceptor already handles that).
-        try {
-          await refreshMe();
-        } catch {
-          // keep cached user
-        }
-
-        if (!mounted) return;
+        setUser(backendUser);
         setReady(true);
-      } catch {
+      } catch (e: any) {
+        // IMPORTANT:
+        // If backend is down / network issue, DO NOT wipe local session immediately.
+        // api.ts will only clear token on 401; so here we just mark ready.
         if (!mounted) return;
         setReady(true);
       }
-    })();
+    };
 
+    init();
     return () => {
       mounted = false;
     };
-  }, [persistUser, refreshMe]);
+  }, [logout, setUser]);
 
   // Cross-tab sync
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "token" || e.key === "user") {
-        setUser(safeParseUser(localStorage.getItem("user")));
+        setUserState(safeParseUser(localStorage.getItem("user")));
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // Forced logout from api.ts (401 handler)
+  // Forced logout (from api.ts interceptor)
   useEffect(() => {
-    const handler = () => setUser(null);
+    const handler = () => setUserState(null);
     window.addEventListener("auth-logout", handler);
     return () => window.removeEventListener("auth-logout", handler);
   }, []);
@@ -169,29 +151,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data } = await api.post("/auth/login", { email, password });
 
       const newToken = data?.token;
-      const backendUser = data?.user;
+      const backendUser = normalizeBackendUser(data?.user);
 
       if (!newToken || !backendUser) {
         return { ok: false, message: "Response login tidak valid dari server." };
       }
 
       localStorage.setItem("token", String(newToken));
+      setUser(backendUser);
 
-      const normalized = normalizeBackendUser(backendUser);
-      if (!normalized) {
-        localStorage.removeItem("token");
-        return { ok: false, message: "Data user tidak lengkap." };
-      }
-
-      persistUser(normalized);
-      return { ok: true, user: normalized };
+      return { ok: true, user: backendUser };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Login gagal.";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);
     }
-  }, [persistUser]);
+  }, [setUser]);
 
   const value: AuthContextValue = {
     user,
@@ -200,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     login,
     logout,
-    refreshMe,
+    setUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -209,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) {
-    throw new Error("useAuth() must be used inside <AuthProvider>.");
+    throw new Error("useAuth must be used within <AuthProvider />");
   }
   return ctx;
 }
