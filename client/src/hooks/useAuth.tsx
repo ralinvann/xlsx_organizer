@@ -1,5 +1,4 @@
-// src/hooks/useAuth.tsx
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "../lib/api";
 
 export type AuthUser = {
@@ -43,27 +42,37 @@ function safeParseUser(s: string | null): AuthUser | null {
 
 function normalizeBackendUser(u: any): AuthUser | null {
   if (!u) return null;
-  const id = String(u.id ?? u._id ?? "");
+
+  const id = String(u.id ?? u._id ?? u.userId ?? "");
   const email = String(u.email ?? "");
   if (!id || !email) return null;
+
+  const firstName = u.firstName ? String(u.firstName) : undefined;
+  const lastName = u.lastName ? String(u.lastName) : undefined;
+
+  const name =
+    (u.name ? String(u.name) : "") ||
+    [firstName, u.middleName ? String(u.middleName) : "", lastName].filter(Boolean).join(" ").trim() ||
+    undefined;
+
+  const profilePictureRaw = u.profilePicture ?? u.avatar ?? u.avatarUrl ?? u.profilePictureUrl ?? "";
 
   return {
     id,
     email,
-    role: u.role,
-    name: u.name,
-    firstName: u.firstName,
-    lastName: u.lastName,
-    profilePicture: u.profilePicture,
+    role: u.role ? String(u.role) : undefined,
+    name,
+    firstName,
+    lastName,
+    profilePicture: profilePictureRaw ? String(profilePictureRaw) : undefined,
   };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(() => safeParseUser(localStorage.getItem("user")));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const token = useMemo(() => localStorage.getItem("token"), [user]);
 
   const setUser = useCallback((u: AuthUser | null) => {
     if (!u) {
@@ -78,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    setToken(null);
     setUserState(null);
     window.dispatchEvent(new Event("auth-logout"));
   }, []);
@@ -88,8 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const init = async () => {
       const t = localStorage.getItem("token");
+      setToken(t);
 
-      // no token = guest
       if (!t) {
         if (!mounted) return;
         setUser(null);
@@ -97,14 +107,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // token exists: try validate with backend
       try {
         const { data } = await api.get("/auth/me");
         if (!mounted) return;
 
-        const backendUser = normalizeBackendUser(data?.user);
+        const candidate = (data as any)?.user ?? (data as any)?.data?.user ?? data;
+        const backendUser = normalizeBackendUser(candidate);
+
         if (!backendUser) {
-          // token invalid -> logout
           logout();
           setReady(true);
           return;
@@ -112,16 +122,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setUser(backendUser);
         setReady(true);
-      } catch (e: any) {
-        // IMPORTANT:
-        // If backend is down / network issue, DO NOT wipe local session immediately.
-        // api.ts will only clear token on 401; so here we just mark ready.
+      } catch {
         if (!mounted) return;
+        // if backend down, keep session
         setReady(true);
       }
     };
 
-    init();
+    void init();
     return () => {
       mounted = false;
     };
@@ -130,9 +138,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Cross-tab sync
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "token" || e.key === "user") {
-        setUserState(safeParseUser(localStorage.getItem("user")));
-      }
+      if (e.key === "token") setToken(localStorage.getItem("token"));
+      if (e.key === "user") setUserState(safeParseUser(localStorage.getItem("user")));
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -140,34 +147,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Forced logout (from api.ts interceptor)
   useEffect(() => {
-    const handler = () => setUserState(null);
+    const handler = () => {
+      setToken(null);
+      setUserState(null);
+    };
     window.addEventListener("auth-logout", handler);
     return () => window.removeEventListener("auth-logout", handler);
   }, []);
 
-  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
-    setLoading(true);
-    try {
-      const { data } = await api.post("/auth/login", { email, password });
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      setLoading(true);
+      try {
+        const { data } = await api.post("/auth/login", { email, password });
 
-      const newToken = data?.token;
-      const backendUser = normalizeBackendUser(data?.user);
+        const newToken = (data as any)?.token;
+        const candidate = (data as any)?.user ?? (data as any)?.data?.user ?? data;
+        const backendUser = normalizeBackendUser(candidate);
 
-      if (!newToken || !backendUser) {
-        return { ok: false, message: "Response login tidak valid dari server." };
+        if (!newToken || !backendUser) {
+          return { ok: false, message: "Response login tidak valid dari server." };
+        }
+
+        localStorage.setItem("token", String(newToken));
+        setToken(String(newToken));
+        setUser(backendUser);
+
+        return { ok: true, user: backendUser };
+      } catch (e: any) {
+        const msg = e?.response?.data?.message || e?.message || "Login gagal.";
+        return { ok: false, message: msg };
+      } finally {
+        setLoading(false);
       }
-
-      localStorage.setItem("token", String(newToken));
-      setUser(backendUser);
-
-      return { ok: true, user: backendUser };
-    } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || "Login gagal.";
-      return { ok: false, message: msg };
-    } finally {
-      setLoading(false);
-    }
-  }, [setUser]);
+    },
+    [setUser]
+  );
 
   const value: AuthContextValue = {
     user,
@@ -184,8 +199,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used within <AuthProvider />");
-  }
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider />");
   return ctx;
 }

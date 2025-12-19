@@ -1,7 +1,10 @@
-// src/lib/api.ts
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 function resolveBaseUrl(): string {
+  // Prefer env override if available (Vite)
+  const envBase = (import.meta as any)?.env?.VITE_API_BASE;
+  if (envBase) return String(envBase).replace(/\/+$/, "");
+
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") {
     return "http://localhost:3001/api";
@@ -21,7 +24,7 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem("token");
   if (token) {
     config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
+    (config.headers as any).Authorization = `Bearer ${token}`;
   }
   return config;
 });
@@ -32,21 +35,18 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
 
-    // If config missing, just throw
     if (!original) throw error;
 
-    // Retry once on network / timeout errors
     const isNetworkError =
       error.code === "ECONNABORTED" ||
       (typeof error.message === "string" && error.message.includes("Network Error")) ||
-      (!error.response && !!error.request); // request made, no response
+      (!error.response && !!error.request);
 
     if (isNetworkError && !original._retry) {
       original._retry = true;
       return api(original);
     }
 
-    // 401 → force logout
     if (error.response?.status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
