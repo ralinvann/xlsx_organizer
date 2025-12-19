@@ -1,13 +1,32 @@
+// utils/signUser.ts
 import jwt from "jsonwebtoken";
-import { IUser } from "../models/User";
+import { Types } from "mongoose";
+import { UserRole } from "../models/User";
 
 /**
- * Generate a JWT for the given user
+ * Minimal shape required to sign a JWT
+ * (works for hydrated documents, lean objects, or plain objects)
  */
-export const signUser = (user: Pick<IUser, "_id" | "role">): string => {
+export type JwtUserInput = {
+  id: string | Types.ObjectId;
+  role: UserRole;
+};
+
+/**
+ * Generate a JWT for a user
+ */
+export function signUser(user: JwtUserInput): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET is not defined");
+  }
+
   return jwt.sign(
-    { id: String(user._id), role: user.role },
-    process.env.JWT_SECRET!,
+    {
+      userId: String(user.id), // normalize to string
+      role: user.role,
+    },
+    secret,
     { expiresIn: "7d" }
   );
-};
+}
