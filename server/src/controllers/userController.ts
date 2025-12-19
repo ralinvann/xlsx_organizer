@@ -1,8 +1,17 @@
 import { Request, Response } from "express";
-import User from "../models/User";
+import User, { UserRole } from "../models/User";
 import { hashPassword, comparePassword } from "../utils/hash";
 import { signUser } from "../utils/jwt";
 import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload";
+
+/**
+ * Helper: normalize role input (admin endpoints only)
+ */
+function normalizeRole(role: any): UserRole | null {
+  const r = String(role ?? "").toLowerCase().trim();
+  if (r === "superadmin" || r === "admin" || r === "officer") return r;
+  return null;
+}
 
 /**
  * @route POST /api/users/register
@@ -16,8 +25,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const lastName = String(req.body.lastName ?? "").trim();
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
-    // ignore incoming role for safety
-    const role = "officer";
+
+    // force role to officer
+    const role: UserRole = "officer";
 
     if (!firstName || !lastName || !email || !password) {
       res.status(400).json({ message: "Missing required fields" });
@@ -51,18 +61,19 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       role,
     });
 
-    const token = signUser(user);
+    // ✅ FIX: signUser now expects minimal shape, not whole doc
+    const token = signUser({ id: user._id, role: user.role });
 
     res.status(201).json({
       token,
       user: {
-        id: user._id,
+        id: user._id.toString(),
         firstName: user.firstName,
-        middleName: user.middleName,
+        middleName: user.middleName ?? "",
         lastName: user.lastName,
         email: user.email,
         role: user.role,
-        profilePicture: user.profilePicture,
+        profilePicture: user.profilePicture ?? "",
         createdAt: user.createdAt,
       },
     });
@@ -100,18 +111,19 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const token = signUser(user);
+    // ✅ FIX: signUser expects { id, role }
+    const token = signUser({ id: user._id, role: user.role });
 
     res.status(200).json({
       token,
       user: {
-        id: user._id,
+        id: user._id.toString(),
         firstName: user.firstName,
-        middleName: user.middleName,
+        middleName: user.middleName ?? "",
         lastName: user.lastName,
         email: user.email,
         role: user.role,
-        profilePicture: user.profilePicture,
+        profilePicture: user.profilePicture ?? "",
         createdAt: user.createdAt,
       },
     });
@@ -129,7 +141,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
  */
 export const me = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.id;
+    // ✅ FIX: typed from middleware, no more (req as any)
+    const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ message: "Unauthorized" });
       return;
@@ -141,7 +154,19 @@ export const me = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    res.status(200).json(user);
+    res.status(200).json({
+      user: {
+        id: user._id.toString(),
+        firstName: user.firstName,
+        middleName: user.middleName ?? "",
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        profilePicture: user.profilePicture ?? "",
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+    });
     return;
   } catch (err) {
     console.error("me error:", err);
@@ -156,7 +181,7 @@ export const me = async (req: Request, res: Response): Promise<void> => {
  */
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ message: "Unauthorized" });
       return;
@@ -182,7 +207,19 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    res.status(200).json(updated);
+    res.status(200).json({
+      user: {
+        id: updated._id.toString(),
+        firstName: updated.firstName,
+        middleName: updated.middleName ?? "",
+        lastName: updated.lastName,
+        email: updated.email,
+        role: updated.role,
+        profilePicture: updated.profilePicture ?? "",
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
     return;
   } catch (err) {
     console.error("updateProfile error:", err);
@@ -197,7 +234,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
  */
 export const updatePassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ message: "Unauthorized" });
       return;
@@ -246,7 +283,7 @@ export const updatePassword = async (req: Request, res: Response): Promise<void>
  */
 export const uploadAvatar = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = req.user?.id;
     if (!userId) {
       res.status(401).json({ message: "Unauthorized" });
       return;
@@ -270,7 +307,19 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    res.status(200).json(updated);
+    res.status(200).json({
+      user: {
+        id: updated._id.toString(),
+        firstName: updated.firstName,
+        middleName: updated.middleName ?? "",
+        lastName: updated.lastName,
+        email: updated.email,
+        role: updated.role,
+        profilePicture: updated.profilePicture ?? "",
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
     return;
   } catch (err) {
     console.error("uploadAvatar error:", err);
@@ -286,7 +335,19 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
 export const listUsers = async (_req: Request, res: Response): Promise<void> => {
   try {
     const users = await User.find().select("-password").sort({ createdAt: -1 });
-    res.status(200).json(users);
+    res.status(200).json({
+      users: users.map((u) => ({
+        id: u._id.toString(),
+        firstName: u.firstName,
+        middleName: u.middleName ?? "",
+        lastName: u.lastName,
+        email: u.email,
+        role: u.role,
+        profilePicture: u.profilePicture ?? "",
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
+      })),
+    });
     return;
   } catch (err) {
     console.error("listUsers error:", err);
@@ -307,7 +368,19 @@ export const getUser = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    res.status(200).json(user);
+    res.status(200).json({
+      user: {
+        id: user._id.toString(),
+        firstName: user.firstName,
+        middleName: user.middleName ?? "",
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        profilePicture: user.profilePicture ?? "",
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+    });
     return;
   } catch (err) {
     console.error("getUser error:", err);
@@ -325,13 +398,21 @@ export const updateUserByAdmin = async (req: Request, res: Response): Promise<vo
     const firstName = req.body.firstName !== undefined ? String(req.body.firstName).trim() : undefined;
     const middleName = req.body.middleName !== undefined ? String(req.body.middleName).trim() : undefined;
     const lastName = req.body.lastName !== undefined ? String(req.body.lastName).trim() : undefined;
-    const role = req.body.role !== undefined ? String(req.body.role).trim() : undefined;
+
+    // normalize role safely
+    const roleInput = req.body.role !== undefined ? normalizeRole(req.body.role) : undefined;
 
     const $set: Record<string, any> = {};
     if (firstName !== undefined) $set.firstName = firstName;
     if (middleName !== undefined) $set.middleName = middleName;
     if (lastName !== undefined) $set.lastName = lastName;
-    if (role !== undefined) $set.role = role;
+    if (roleInput !== undefined) {
+      if (!roleInput) {
+        res.status(400).json({ message: "Invalid role" });
+        return;
+      }
+      $set.role = roleInput;
+    }
 
     const updated = await User.findByIdAndUpdate(
       req.params.id,
@@ -344,7 +425,19 @@ export const updateUserByAdmin = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    res.status(200).json(updated);
+    res.status(200).json({
+      user: {
+        id: updated._id.toString(),
+        firstName: updated.firstName,
+        middleName: updated.middleName ?? "",
+        lastName: updated.lastName,
+        email: updated.email,
+        role: updated.role,
+        profilePicture: updated.profilePicture ?? "",
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
     return;
   } catch (err) {
     console.error("updateUserByAdmin error:", err);
