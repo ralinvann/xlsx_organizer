@@ -40,6 +40,13 @@ type PreviewEditPageProps = {
   onCancel?: () => void;
 };
 
+type RowIssue = {
+  id: string | number;
+  index: number; // 1-based display index
+  type: "error" | "warning";
+  messages: string[];
+};
+
 export function PreviewEditPage({
   initialData = null,
   onDone,
@@ -58,13 +65,15 @@ export function PreviewEditPage({
   function payloadFromArray(arr: any[]): UploadPayload {
     const rows = (arr || []).map((r: any, i: number) => {
       const obj = { ...r };
-      if (obj.id === undefined || obj.id === null) obj.id = `row_${Date.now()}_${i + 1}`;
+      if (obj.id === undefined || obj.id === null)
+        obj.id = `row_${Date.now()}_${i + 1}`;
       Object.keys(obj).forEach((k) => {
         if (typeof obj[k] === "string") obj[k] = obj[k].trim();
       });
       return obj;
     });
-    const headerKeys = rows.length > 0 ? Object.keys(rows[0]).filter((k) => k !== "id") : [];
+    const headerKeys =
+      rows.length > 0 ? Object.keys(rows[0]).filter((k) => k !== "id") : [];
     const headerLabels = headerKeys.map((k) => String(k).toUpperCase());
     const headerOrder = [...headerKeys];
     return { rows, headerKeys, headerLabels, headerOrder };
@@ -77,7 +86,8 @@ export function PreviewEditPage({
     if (payloadOrArray.rows && (payloadOrArray.headerKeys || payloadOrArray.headerOrder)) {
       const rows = (payloadOrArray.rows || []).map((r: any, i: number) => {
         const obj = { ...r };
-        if (obj.id === undefined || obj.id === null) obj.id = `row_${Date.now()}_${i + 1}`;
+        if (obj.id === undefined || obj.id === null)
+          obj.id = `row_${Date.now()}_${i + 1}`;
         Object.keys(obj).forEach((k) => {
           if (typeof obj[k] === "string") obj[k] = obj[k].trim();
         });
@@ -86,7 +96,8 @@ export function PreviewEditPage({
 
       const headerKeys = payloadOrArray.headerOrder ?? payloadOrArray.headerKeys ?? [];
       const headerLabels =
-        payloadOrArray.headerLabels ?? headerKeys.map((k: string) => String(k).toUpperCase());
+        payloadOrArray.headerLabels ??
+        headerKeys.map((k: string) => String(k).toUpperCase());
       const headerOrder = headerKeys;
 
       return {
@@ -139,40 +150,107 @@ export function PreviewEditPage({
   const headerKeys = payload?.headerOrder ?? payload?.headerKeys ?? [];
   const headerLabels = payload?.headerLabels ?? headerKeys.map((k) => String(k).toUpperCase());
 
+  // -------- helpers for validation ----------
+  const toStr = (v: any) => String(v ?? "").trim();
+  const hasValue = (v: any) => toStr(v) !== "";
+  const parseNumberSafe = (v: any) => {
+    if (v === null || v === undefined || v === "") return NaN;
+    const n = Number(String(v).replace(/[^\d.]/g, ""));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const pickField = (r: any, aliases: string[]) => {
+    for (const key of Object.keys(r || {})) {
+      const lower = key.toLowerCase();
+      if (aliases.includes(lower)) return key;
+    }
+    return null;
+  };
+
+  // Build a flexible mapping so you can validate even if headers are normalized:
+  // "nama_lengkap", "nama", "nik", "no_ktp", etc.
+  const fieldHints = useMemo(() => {
+    if (!rows || rows.length === 0) return null;
+    const r0 = rows[0];
+
+    const namaKey = pickField(r0, ["nama", "nama_lengkap", "nama lengkap", "name"]);
+    const nikKey = pickField(r0, ["nik", "no_ktp", "nomor_ktp", "ktp", "no_ktpnik", "nomor ktp/nik"]);
+    const umurKey = pickField(r0, ["umur", "usia", "age"]);
+    const bpKey = pickField(r0, ["tekanandarah", "tekanan_darah", "td", "blood_pressure"]);
+    const gulaKey = pickField(r0, ["guladarah", "gula_darah", "gds", "blood_sugar"]);
+
+    return { namaKey, nikKey, umurKey, bpKey, gulaKey };
+  }, [rows]);
+
   const validationResults = useMemo(() => {
-    if (!rows) return { total: 0, valid: 0, warning: 0, error: 0 };
+    if (!rows) return { total: 0, valid: 0, warning: 0, error: 0, issues: [] as RowIssue[] };
 
     let total = rows.length;
     let valid = 0;
     let warning = 0;
     let errorCount = 0;
+    const issues: RowIssue[] = [];
 
-    rows.forEach((r) => {
-      // keep your old logic but do NOT assume "nama/nik/umur" always exist
-      const hasName = r.nama !== undefined ? Boolean(String(r.nama).trim()) : true;
-      const hasNik = r.nik !== undefined ? Boolean(String(r.nik).trim()) : true;
-      const hasAge =
-        r.umur !== undefined ? !(r.umur === null || r.umur === "" || Number.isNaN(Number(r.umur))) : true;
+    const namaKey = fieldHints?.namaKey;
+    const nikKey = fieldHints?.nikKey;
+    const umurKey = fieldHints?.umurKey;
+    const bpKey = fieldHints?.bpKey;
+    const gulaKey = fieldHints?.gulaKey;
 
-      if (!(hasName && hasNik && hasAge)) {
+    rows.forEach((r, idx0) => {
+      const idx = idx0 + 1;
+      const rowId = r?.id ?? `row_${idx}`;
+
+      const msgsError: string[] = [];
+      const msgsWarn: string[] = [];
+
+      // Required checks only if the column exists in the file
+      if (namaKey && !hasValue(r[namaKey])) msgsError.push(`Kolom "${namaKey}" kosong`);
+      if (nikKey && !hasValue(r[nikKey])) msgsError.push(`Kolom "${nikKey}" kosong`);
+      if (umurKey) {
+        const ageNum = parseNumberSafe(r[umurKey]);
+        if (Number.isNaN(ageNum)) msgsError.push(`Kolom "${umurKey}" bukan angka`);
+      }
+
+      // Warning checks (if present)
+      if (bpKey) {
+        const bp = toStr(r[bpKey]);
+        const sysRaw = bp.includes("/") ? bp.split("/")[0] : bp;
+        const sys = parseInt(String(sysRaw).replace(/\D/g, ""), 10);
+        if (!Number.isNaN(sys) && sys >= 140) msgsWarn.push(`Tekanan darah tinggi (sistolik ${sys})`);
+      }
+
+      if (gulaKey) {
+        const sugarNum = parseInt(toStr(r[gulaKey]).replace(/\D/g, ""), 10);
+        if (!Number.isNaN(sugarNum) && sugarNum >= 180) msgsWarn.push(`Gula darah tinggi (${sugarNum})`);
+      }
+
+      if (msgsError.length > 0) {
         errorCount += 1;
+        issues.push({ id: rowId, index: idx, type: "error", messages: msgsError });
         return;
       }
 
-      const bp = String(r.tekananDarah ?? "");
-      const sugar = String(r.gulaDarah ?? "");
-      const sys = bp.split("/")[0] ? parseInt(bp.split("/")[0].replace(/\D/g, ""), 10) : NaN;
-      const sugarNum = parseInt(sugar.replace(/\D/g, ""), 10);
-
-      if ((!Number.isNaN(sys) && sys >= 140) || (!Number.isNaN(sugarNum) && sugarNum >= 180)) {
+      if (msgsWarn.length > 0) {
         warning += 1;
-      } else {
-        valid += 1;
+        issues.push({ id: rowId, index: idx, type: "warning", messages: msgsWarn });
+        return;
       }
+
+      valid += 1;
     });
 
-    return { total, valid, warning, error: errorCount };
-  }, [rows]);
+    return { total, valid, warning, error: errorCount, issues };
+  }, [rows, fieldHints]);
+
+  const errorIssues = useMemo(
+    () => validationResults.issues.filter((x) => x.type === "error"),
+    [validationResults.issues]
+  );
+  const warningIssues = useMemo(
+    () => validationResults.issues.filter((x) => x.type === "warning"),
+    [validationResults.issues]
+  );
 
   const startEdit = (row: any) => {
     setEditingRowId(row.id);
@@ -209,14 +287,12 @@ export function PreviewEditPage({
   const handleCancelImport = (): void => {
     try {
       sessionStorage.removeItem("previewData");
-      // also clear upload-related persisted state so the step indicator can't stay completed
       sessionStorage.removeItem("uploadStep");
       sessionStorage.removeItem("uploadFileName");
     } catch (e) {
       console.warn("sessionStorage remove failed", e);
     }
 
-    // notify other components (e.g. UploadPage) to reset their in-memory state
     try {
       window.dispatchEvent(new CustomEvent("upload-reset", { detail: { timestamp: Date.now() } }));
     } catch (err) {
@@ -260,7 +336,7 @@ export function PreviewEditPage({
         sourceSheetName: payload?.sourceSheetName,
       };
 
-      const { data } = await api.post("/elderly-reports", body); // IMPORTANT: no "/api" here
+      const { data } = await api.post("/elderly-reports", body);
       if (!data?.reportId) throw new Error("Response tidak valid dari server.");
 
       setSuccessMsg("Data berhasil diimpor ke database.");
@@ -286,7 +362,10 @@ export function PreviewEditPage({
             Tidak ada data preview. Silakan unggah file terlebih dahulu.
           </p>
           <div className="text-sm text-muted-foreground mt-2">
-            File: <strong>{payload?.fileName ?? sessionStorage.getItem("uploadFileName") ?? "unknown"}</strong>
+            File:{" "}
+            <strong>
+              {payload?.fileName ?? sessionStorage.getItem("uploadFileName") ?? "unknown"}
+            </strong>
           </div>
         </div>
         {errorMsg && <div className="text-red-600">{errorMsg}</div>}
@@ -304,7 +383,6 @@ export function PreviewEditPage({
             Review dan edit data sebelum menyimpan ke sistem
           </p>
 
-          {/* show meta header */}
           <div className="mt-3 text-sm text-muted-foreground space-y-1">
             <div>File: <strong>{payload?.fileName ?? "-"}</strong></div>
             <div>KABUPATEN: <strong>{payload?.kabupaten ?? "-"}</strong></div>
@@ -349,7 +427,7 @@ export function PreviewEditPage({
         <CardHeader>
           <CardTitle className="text-2xl">Hasil Validasi Data</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded-lg">
               <div className="text-3xl font-bold text-blue-600">{validationResults.total}</div>
@@ -368,6 +446,49 @@ export function PreviewEditPage({
               <div className="text-lg text-red-700">Error</div>
             </div>
           </div>
+
+          {/* Show exactly which rows fail */}
+          {errorIssues.length > 0 && (
+            <div className="border rounded-lg p-4 bg-red-50">
+              <div className="font-semibold text-red-700 text-lg mb-2">
+                Detail Error (per baris)
+              </div>
+              <div className="space-y-2">
+                {errorIssues.slice(0, 30).map((iss) => (
+                  <div key={`err-${iss.id}`} className="text-red-800">
+                    <span className="font-semibold">Row #{iss.index}:</span>{" "}
+                    {iss.messages.join(" • ")}
+                  </div>
+                ))}
+                {errorIssues.length > 30 && (
+                  <div className="text-red-700">
+                    Menampilkan 30 error pertama. Total error: {errorIssues.length}.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {warningIssues.length > 0 && (
+            <div className="border rounded-lg p-4 bg-yellow-50">
+              <div className="font-semibold text-yellow-800 text-lg mb-2">
+                Detail Peringatan (per baris)
+              </div>
+              <div className="space-y-2">
+                {warningIssues.slice(0, 30).map((iss) => (
+                  <div key={`warn-${iss.id}`} className="text-yellow-900">
+                    <span className="font-semibold">Row #{iss.index}:</span>{" "}
+                    {iss.messages.join(" • ")}
+                  </div>
+                ))}
+                {warningIssues.length > 30 && (
+                  <div className="text-yellow-800">
+                    Menampilkan 30 warning pertama. Total warning: {warningIssues.length}.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -379,159 +500,191 @@ export function PreviewEditPage({
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
-                <TableHeader>
-                  {payload?.headerBlock ? (
-                    (() => {
-                      const hb = payload.headerBlock!;
-                      const merges = (hb.merges || []).filter((m: any) => m && typeof m.s?.c === "number");
-                      const headerHeight = Math.max(1, (hb.rows || []).length);
-                      const maxCols = headerKeys.length;
+              <TableHeader>
+                {payload?.headerBlock ? (
+                  (() => {
+                    const hb = payload.headerBlock!;
+                    const merges = (hb.merges || []).filter((m: any) => m && typeof m.s?.c === "number");
+                    const headerHeight = Math.max(1, (hb.rows || []).length);
+                    const maxCols = headerKeys.length;
 
-                      // merges are normalized to header-local coordinates (rows starting at 0, cols starting at 0)
-                      const visibleMerges = merges.filter((m: any) => {
-                        if (!m) return false;
-                        const startC = Math.max(0, m.s.c);
-                        const endC = m.e.c;
-                        return startC <= maxCols - 1 && endC >= 0 && m.s.r >= 0 && m.e.r < headerHeight;
-                      });
+                    const visibleMerges = merges.filter((m: any) => {
+                      if (!m) return false;
+                      const startC = Math.max(0, m.s.c);
+                      const endC = m.e.c;
+                      return startC <= maxCols - 1 && endC >= 0 && m.s.r >= 0 && m.e.r < headerHeight;
+                    });
 
-                      const isInsideMerge = (localR: number, localC: number) => {
-                        return visibleMerges.some((m: any) => localR >= m.s.r && localR <= m.e.r && localC >= m.s.c && localC <= m.e.c);
-                      };
+                    const isInsideMerge = (localR: number, localC: number) =>
+                      visibleMerges.some((m: any) => localR >= m.s.r && localR <= m.e.r && localC >= m.s.c && localC <= m.e.c);
 
-                      const getMergeStartingAt = (localR: number, localC: number) => {
-                        return visibleMerges.find((m: any) => m.s.r === localR && m.s.c === localC);
-                      };
+                    const getMergeStartingAt = (localR: number, localC: number) =>
+                      visibleMerges.find((m: any) => m.s.r === localR && m.s.c === localC);
 
-                      return Array.from({ length: headerHeight }).map((_, rowIdx) => {
-                          const localRowIdx = rowIdx;
-                          const consumed = new Set<number>();
+                    return Array.from({ length: headerHeight }).map((_, rowIdx) => {
+                      const localRowIdx = rowIdx;
+                      const consumed = new Set<number>();
+                      return (
+                        <TableRow key={`hdr-${rowIdx}`}>
+                          {Array.from({ length: maxCols }).map((__, colIdx) => {
+                            if (consumed.has(colIdx)) return null;
+
+                            const merge = getMergeStartingAt(localRowIdx, colIdx);
+                            if (merge) {
+                              const startC = Math.max(0, merge.s.c);
+                              const endC = Math.min(maxCols - 1, merge.e.c);
+                              const colSpan = Math.max(1, endC - startC + 1);
+                              const rowSpan = Math.max(1, merge.e.r - merge.s.r + 1);
+                              for (let cc = startC; cc <= endC; cc++) consumed.add(cc);
+                              const text = (hb.rows[localRowIdx] && hb.rows[localRowIdx][startC]) ?? "";
+                              return (
+                                <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={colSpan} rowSpan={rowSpan} className="text-lg text-center font-bold">
+                                  {String(text ?? "").trim() || ""}
+                                </TableHead>
+                              );
+                            }
+
+                            if (isInsideMerge(localRowIdx, colIdx)) {
+                              consumed.add(colIdx);
+                              return null;
+                            }
+
+                            const rowSpan = headerHeight - localRowIdx;
+                            consumed.add(colIdx);
+                            const text =
+                              (hb.rows[localRowIdx] && hb.rows[localRowIdx][colIdx]) ??
+                              headerLabels[colIdx] ??
+                              headerKeys[colIdx] ??
+                              "";
+                            return (
+                              <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={1} rowSpan={rowSpan} className="text-lg text-center font-bold">
+                                {String(text ?? "").trim() || ""}
+                              </TableHead>
+                            );
+                          })}
+
+                          {rowIdx === 0 && isEditing && (
+                            <TableHead rowSpan={headerHeight} className="text-lg text-center font-bold">
+                              Aksi
+                            </TableHead>
+                          )}
+                        </TableRow>
+                      );
+                    });
+                  })()
+                ) : (
+                  <TableRow>
+                    {headerKeys.map((key, i) => (
+                      <TableHead key={key} className="text-lg">
+                        {headerLabels[i] ?? key}
+                      </TableHead>
+                    ))}
+                    {isEditing && <TableHead className="text-lg">Aksi</TableHead>}
+                  </TableRow>
+                )}
+              </TableHeader>
+
+              <TableBody>
+                {rows.map((row, idx0) => {
+                  const rowIndex = idx0 + 1;
+                  const rowIssue = validationResults.issues.find((x) => String(x.id) === String(row.id));
+                  const rowHasError = rowIssue?.type === "error";
+                  const rowHasWarning = rowIssue?.type === "warning";
+
+                  return (
+                    <TableRow
+                      key={String(row.id)}
+                      className={
+                        rowHasError
+                          ? "bg-red-50"
+                          : rowHasWarning
+                          ? "bg-yellow-50"
+                          : undefined
+                      }
+                    >
+                      {headerKeys.map((k) => {
+                        const cellValue = row[k];
+                        const isEditingThisRow = editingRowId === row.id;
+
                         return (
-                          <TableRow key={`hdr-${rowIdx}`}>
-                              {Array.from({ length: maxCols }).map((__, colIdx) => {
-                                if (consumed.has(colIdx)) return null;
+                          <TableCell key={k} className="text-lg">
+                            {isEditing && isEditingThisRow ? (
+                              (() => {
+                                const lower = k.toLowerCase();
+                                const isNumberish = lower.includes("umur") || typeof cellValue === "number";
 
-                                const merge = getMergeStartingAt(localRowIdx, colIdx);
-                                if (merge) {
-                                  const startC = Math.max(0, merge.s.c);
-                                  const endC = Math.min(maxCols - 1, merge.e.c);
-                                  const colSpan = Math.max(1, endC - startC + 1);
-                                  const rowSpan = Math.max(1, merge.e.r - merge.s.r + 1);
-                                  for (let cc = startC; cc <= endC; cc++) consumed.add(cc);
-                                  const text = (hb.rows[localRowIdx] && hb.rows[localRowIdx][startC]) ?? "";
+                                if (isNumberish) {
                                   return (
-                                    <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={colSpan} rowSpan={rowSpan} className="text-lg text-center font-bold">
-                                      {String(text ?? "").trim() || ""}
-                                    </TableHead>
+                                    <input
+                                      type="number"
+                                      className="w-28 border rounded px-2 py-1"
+                                      value={String(editDraft?.[k] ?? cellValue ?? "")}
+                                      onChange={(e) =>
+                                        setEditDraft((d) => ({
+                                          ...(d ?? row),
+                                          [k]: e.target.value ? Number(e.target.value) : null,
+                                        }))
+                                      }
+                                    />
                                   );
                                 }
 
-                                if (isInsideMerge(localRowIdx, colIdx)) {
-                                  // cell is covered by a merge starting on an earlier row/col; skip rendering
-                                  consumed.add(colIdx);
-                                  return null;
-                                }
-
-                                // standalone cell: span remaining header rows vertically
-                                const rowSpan = headerHeight - localRowIdx;
-                                consumed.add(colIdx);
-                                const text = (hb.rows[localRowIdx] && hb.rows[localRowIdx][colIdx]) ?? headerLabels[colIdx] ?? headerKeys[colIdx] ?? "";
-                                return (
-                                  <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={1} rowSpan={rowSpan} className="text-lg text-center font-bold">
-                                    {String(text ?? "").trim() || ""}
-                                  </TableHead>
-                                );
-                              })}
-
-                            {rowIdx === 0 && isEditing && (
-                              <TableHead rowSpan={headerHeight} className="text-lg text-center font-bold">
-                                Aksi
-                              </TableHead>
-                            )}
-                          </TableRow>
-                        );
-                      });
-                    })()
-                  ) : (
-                    <TableRow>
-                      {headerKeys.map((key, i) => (
-                        <TableHead key={key} className="text-lg">
-                          {headerLabels[i] ?? key}
-                        </TableHead>
-                      ))}
-                      {isEditing && <TableHead className="text-lg">Aksi</TableHead>}
-                    </TableRow>
-                  )}
-                </TableHeader>
-
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={String(row.id)}>
-                    {headerKeys.map((k) => {
-                      const cellValue = row[k];
-                      const isEditingThisRow = editingRowId === row.id;
-
-                      return (
-                        <TableCell key={k} className="text-lg">
-                          {isEditing && isEditingThisRow ? (
-                            (() => {
-                              const lower = k.toLowerCase();
-                              const isNumberish = lower.includes("umur") || typeof cellValue === "number";
-
-                              if (isNumberish) {
                                 return (
                                   <input
-                                    type="number"
-                                    className="w-28 border rounded px-2 py-1"
+                                    className="w-full border rounded px-2 py-1"
                                     value={String(editDraft?.[k] ?? cellValue ?? "")}
                                     onChange={(e) =>
-                                      setEditDraft((d) => ({
-                                        ...(d ?? row),
-                                        [k]: e.target.value ? Number(e.target.value) : null,
-                                      }))
+                                      setEditDraft((d) => ({ ...(d ?? row), [k]: e.target.value }))
                                     }
                                   />
                                 );
-                              }
+                              })()
+                            ) : (
+                              String(cellValue ?? "-")
+                            )}
+                          </TableCell>
+                        );
+                      })}
 
-                              return (
-                                <input
-                                  className="w-full border rounded px-2 py-1"
-                                  value={String(editDraft?.[k] ?? cellValue ?? "")}
-                                  onChange={(e) =>
-                                    setEditDraft((d) => ({ ...(d ?? row), [k]: e.target.value }))
-                                  }
-                                />
-                              );
-                            })()
+                      {isEditing && (
+                        <TableCell>
+                          {editingRowId === row.id ? (
+                            <div className="flex gap-2">
+                              <Button size="sm" className="h-8 px-3" onClick={saveEdit}>
+                                <Save className="w-4 h-4 mr-1" />
+                                Save
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3"
+                                onClick={cancelEdit}
+                              >
+                                Batal
+                              </Button>
+                            </div>
                           ) : (
-                            String(cellValue ?? "-")
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3"
+                                onClick={() => startEdit(row)}
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </Button>
+                              {(rowHasError || rowHasWarning) && (
+                                <span className={rowHasError ? "text-red-700 text-sm" : "text-yellow-800 text-sm"}>
+                                  {rowHasError ? "ERROR" : "WARNING"} #{rowIndex}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </TableCell>
-                      );
-                    })}
-
-                    {isEditing && (
-                      <TableCell>
-                        {editingRowId === row.id ? (
-                          <div className="flex gap-2">
-                            <Button size="sm" className="h-8 px-3" onClick={saveEdit}>
-                              <Save className="w-4 h-4 mr-1" />
-                              Save
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-8 px-3" onClick={cancelEdit}>
-                              Batal
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button variant="outline" size="sm" className="h-8 px-3" onClick={() => startEdit(row)}>
-                            <Edit3 className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -550,7 +703,7 @@ export function PreviewEditPage({
             <Button
               size="lg"
               className="h-12 px-8 text-lg"
-              onClick={() => void handleConfirmImport()}  // ensure TS treats it as void
+              onClick={() => void handleConfirmImport()}
               disabled={loading || validationResults.error > 0}
             >
               {loading ? (

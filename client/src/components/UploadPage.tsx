@@ -60,18 +60,14 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     }
   }, []);
 
-  // listen for reset events coming from other parts of the UI (e.g. preview page cancel)
   useEffect(() => {
     const handler = (e: Event) => {
-      // use the setter that persists to sessionStorage
       setUploadStep(1);
       setFileName(null);
       setFileError(null);
       try {
         sessionStorage.removeItem("previewData");
-      } catch (err) {
-        // ignore
-      }
+      } catch (err) {}
     };
 
     window.addEventListener("upload-reset", handler as EventListener);
@@ -83,22 +79,19 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       number: 1,
       title: "Pilih File Data",
       description: "Upload file Excel atau CSV berisi data kesehatan lansia",
-      status:
-        uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending",
+      status: uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending",
     },
     {
       number: 2,
       title: "Validasi Data",
       description: "Sistem akan memeriksa format dan kelengkapan data",
-      status:
-        uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending",
+      status: uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending",
     },
     {
       number: 3,
       title: "Konfirmasi Import",
       description: "Review data sebelum disimpan ke sistem",
-      status:
-        uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending",
+      status: uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending",
     },
   ];
 
@@ -111,6 +104,10 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
 
   // ---------------- parsing helpers ----------------
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+  function cleanCell(v: any) {
+    return String(v ?? "").replace(/\s+/g, " ").trim();
+  }
 
   function detectHeaderRow(arr: Array<any[]>, maxScanRows = 12, minNonEmptyCells = 3) {
     const rowsToCheck = Math.min(maxScanRows, arr.length);
@@ -155,16 +152,11 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     });
   }
 
-  function cleanCell(v: any) {
-    return String(v ?? "").replace(/\s+/g, " ").trim();
-  }
-
   function isStopMarkerB(cellB: any) {
     const s = cleanCell(cellB).toLowerCase();
     return s.startsWith("diketahui");
   }
 
-  // B2/C2, B3/C3, B4/C4 (AoA index: row 1..3, col B=1, col C=2)
   function readMetaPairsFromAoA(rawAoA: any[][]) {
     const pairsSpec = [
       { row: 1, keyCol: 1, valCol: 2 }, // B2/C2
@@ -203,22 +195,21 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     if (!merges.length) return;
 
     for (const m of merges) {
-      const s = m.s; // { r: startRow, c: startCol }
-      const e = m.e; // { r: endRow, c: endCol }
+      const s = m.s;
+      const e = m.e;
 
-      // ensure aoa has enough rows
       while (aoa.length <= e.r) aoa.push([]);
 
-      // Try to get value from worksheet cell (top-left) first, fallback to aoa
       const startAddr = XLSX.utils.encode_cell({ r: s.r, c: s.c });
       const startCell = ws[startAddr];
       const startVal =
-        startCell && typeof startCell.v !== "undefined" ? startCell.v : (aoa[s.r] && aoa[s.r][s.c]) ?? "";
+        startCell && typeof startCell.v !== "undefined"
+          ? startCell.v
+          : (aoa[s.r] && aoa[s.r][s.c]) ?? "";
 
       for (let r = s.r; r <= e.r; r++) {
         aoa[r] = aoa[r] || [];
         for (let c = s.c; c <= e.c; c++) {
-          // if the target cell is empty or undefined, fill with startVal
           const current = typeof aoa[r][c] !== "undefined" ? aoa[r][c] : "";
           if (current === "" || current === null || typeof current === "undefined") {
             aoa[r][c] = startVal;
@@ -226,6 +217,33 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         }
       }
     }
+  }
+
+  // --------- NEW: trim helpers to avoid “columns all the way to the right” ----------
+  function findLastNonEmptyRow(rows: any[][], startRow: number) {
+    for (let r = rows.length - 1; r >= startRow; r--) {
+      const row = rows[r] || [];
+      if (row.some((v) => cleanCell(v) !== "")) return r;
+    }
+    return startRow;
+  }
+
+  function findLastNonEmptyColInRows(rows: any[][], startRow: number, endRowExclusive: number) {
+    let last = -1;
+    for (let r = startRow; r < Math.min(endRowExclusive, rows.length); r++) {
+      const row = rows[r] || [];
+      for (let c = row.length - 1; c >= 0; c--) {
+        if (cleanCell(row[c]) !== "") {
+          if (c > last) last = c;
+          break;
+        }
+      }
+    }
+    return last;
+  }
+
+  function cropAoA(rows: any[][], maxRow: number, maxCol: number) {
+    return rows.slice(0, maxRow + 1).map((r) => (r || []).slice(0, maxCol + 1));
   }
 
   const handleFile = (file: File) => {
@@ -256,7 +274,14 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         if (!arrayBuffer) throw new Error("Empty file result");
 
         const data = new Uint8Array(arrayBuffer as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: "array" });
+
+        // Better tolerance for .xls weirdness
+        const workbook = XLSX.read(data, {
+          type: "array",
+          cellDates: true,
+          raw: false,
+          dense: false,
+        });
 
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("No sheets found");
@@ -264,10 +289,23 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         const worksheet = workbook.Sheets[sheetName];
 
         // Full sheet AoA
-        const rawAoA: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+        const rawAoA0: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          defval: "",
+          blankrows: false,
+        });
 
         // apply merged-cell propagation so merged ranges show the top-left value in all cells
-        fillMergedCellsFromSheet(worksheet, rawAoA);
+        fillMergedCellsFromSheet(worksheet, rawAoA0);
+
+        // HARD TRIM: remove fake rows/cols caused by formatting
+        const lastRow = findLastNonEmptyRow(rawAoA0, 0);
+        const lastCol = findLastNonEmptyColInRows(rawAoA0, 0, lastRow + 1);
+        if (lastRow < 0 || lastCol < 0) {
+          setFileError("File kosong atau tidak terbaca.");
+          return;
+        }
+        const rawAoA: any[][] = cropAoA(rawAoA0, lastRow, lastCol);
 
         // Meta pairs: B2/C2, B3/C3, B4/C4
         const { metaPairs, metaMap } = readMetaPairsFromAoA(rawAoA);
@@ -281,34 +319,43 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
 
         // Inspect merged ranges to detect a multi-row header block (if present)
         const allMerges = worksheet["!merges"] || [];
-        // only consider merges that start within the visible header area (after hidden rows)
-        const mergesInTop = (allMerges as any[]).filter((m) => m && typeof m.s?.r === "number" && m.s.r >= visibleStartRow && m.s.r < stopRowIdx);
+        const mergesInTop = (allMerges as any[]).filter(
+          (m) =>
+            m &&
+            typeof m.s?.r === "number" &&
+            m.s.r >= visibleStartRow &&
+            m.s.r < stopRowIdx
+        );
 
         let headerStart = -1;
         let headerEnd = -1;
+
         if (mergesInTop.length > 0) {
           headerStart = Math.min(...mergesInTop.map((m) => m.s.r));
           headerEnd = Math.max(...mergesInTop.map((m) => m.e.r));
-          // guard: keep header block inside visible range
           if (headerStart < visibleStartRow) headerStart = visibleStartRow;
           if (headerEnd >= stopRowIdx) headerEnd = stopRowIdx - 1;
         } else {
-          // fallback: single-row header detection (previous behaviour)
           const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
           headerStart = visibleStartRow + localHeaderOffset;
           headerEnd = headerStart;
         }
 
-        // bottom-most header row is the last row of the header block
         const bottomHeaderRowIndex = headerEnd;
-
         const rawHeaderRow = rawAoA[bottomHeaderRowIndex] ?? [];
 
         // Trim leading empty columns so header/merge columns align to visible data columns
         const firstNonEmptyCol = rawHeaderRow.findIndex((c: any) => cleanCell(c) !== "");
         const leftCol = firstNonEmptyCol >= 0 ? firstNonEmptyCol : 0;
 
-        const trimmedHeaderRow = (rawHeaderRow || []).slice(leftCol);
+        // NEW: bound the right-most column based on real content in [headerStart..stopRowIdx)
+        const regionStart = headerStart;
+        const regionEnd = stopRowIdx;
+        let rightCol = findLastNonEmptyColInRows(rawAoA, regionStart, regionEnd);
+        if (rightCol < leftCol) rightCol = leftCol;
+
+        // Header columns only within [leftCol..rightCol]
+        const trimmedHeaderRow = (rawHeaderRow || []).slice(leftCol, rightCol + 1);
         const headerKeys = normalizeHeaders(trimmedHeaderRow);
         const headerLabels: string[] = trimmedHeaderRow.map((c: any) => cleanCell(c));
         const headerOrder = [...headerKeys];
@@ -316,9 +363,8 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         // Body rows: from (bottomHeaderRowIndex+1) to stopRowIdx (exclusive)
         const bodyAoA = rawAoA.slice(bottomHeaderRowIndex + 1, stopRowIdx);
 
-        // Convert AoA to objects using headerKeys
         const cleanedRows = bodyAoA
-          .filter((rowArr) => (rowArr || []).some((x) => cleanCell(x) !== "")) // skip empty row
+          .filter((rowArr) => (rowArr || []).some((x) => cleanCell(x) !== ""))
           .map((rowArr, idx) => {
             const obj: Record<string, any> = {};
             headerKeys.forEach((k, i) => {
@@ -337,17 +383,21 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           return;
         }
 
-        // normalize merges to the trimmed-left column coordinates so preview can render using local indices
+        // normalize merges to trimmed-left coords; also clamp merges to table width
         const rawHeaderBlockRows = rawAoA.slice(headerStart, headerEnd + 1);
-        const normalizedMerges = (mergesInTop || []).map((m: any) => ({
-          s: { r: m.s.r - headerStart, c: m.s.c - leftCol },
-          e: { r: m.e.r - headerStart, c: m.e.c - leftCol },
-        }));
+        const maxLocalCol = rightCol - leftCol;
+
+        const normalizedMerges = (mergesInTop || [])
+          .map((m: any) => ({
+            s: { r: m.s.r - headerStart, c: m.s.c - leftCol },
+            e: { r: m.e.r - headerStart, c: m.e.c - leftCol },
+          }))
+          .filter((m: any) => m.e.c >= 0 && m.s.c <= maxLocalCol);
 
         const headerBlock = {
           start: headerStart,
           end: headerEnd,
-          rows: rawHeaderBlockRows.map((r) => (r || []).slice(leftCol)),
+          rows: rawHeaderBlockRows.map((r) => (r || []).slice(leftCol, rightCol + 1)),
           merges: normalizedMerges,
         };
 
@@ -367,7 +417,6 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           headerBlock,
         };
 
-        // Step -> persist quickly
         setUploadStep(2);
 
         try {
@@ -376,7 +425,6 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           console.warn("sessionStorage write failed", err);
         }
 
-        // simulate validation then navigate to preview
         setTimeout(() => {
           setUploadStep(3);
 
@@ -392,7 +440,11 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         }, 700);
       } catch (err: any) {
         console.error("Parsing error:", err);
-        setFileError("Error parsing file. Make sure it's a valid Excel/CSV file.");
+        setFileError(
+          err?.message
+            ? `Error parsing file: ${err.message}`
+            : "Error parsing file. Make sure it's a valid Excel/CSV file."
+        );
       }
     };
 
@@ -420,7 +472,9 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     <div className="p-6 space-y-8">
       <div>
         <h2 className="text-3xl font-semibold">Upload Document</h2>
-        <p className="text-xl text-muted-foreground mt-2">Import data kesehatan lansia ke dalam sistem</p>
+        <p className="text-xl text-muted-foreground mt-2">
+          Import data kesehatan lansia ke dalam sistem
+        </p>
         {fileName && (
           <div className="text-sm text-muted-foreground mt-2">
             File terakhir: <strong>{fileName}</strong>
@@ -453,10 +507,20 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
                   <p className="text-lg text-muted-foreground">{step.description}</p>
                 </div>
                 <Badge
-                  variant={step.status === "completed" ? "default" : step.status === "active" ? "secondary" : "outline"}
+                  variant={
+                    step.status === "completed"
+                      ? "default"
+                      : step.status === "active"
+                      ? "secondary"
+                      : "outline"
+                  }
                   className="text-sm px-3 py-1"
                 >
-                  {step.status === "completed" ? "Selesai" : step.status === "active" ? "Aktif" : "Menunggu"}
+                  {step.status === "completed"
+                    ? "Selesai"
+                    : step.status === "active"
+                    ? "Aktif"
+                    : "Menunggu"}
                 </Badge>
               </div>
             ))}
@@ -484,16 +548,28 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
                 <Upload className="w-8 h-8 text-primary" />
               </div>
               <div>
-                <h3 className="text-2xl font-semibold mb-2">Seret file ke sini atau klik untuk browse</h3>
+                <h3 className="text-2xl font-semibold mb-2">
+                  Seret file ke sini atau klik untuk browse
+                </h3>
                 <p className="text-lg text-muted-foreground mb-4">
                   Format yang didukung: .xlsx, .csv, .xls (Maksimal 10MB)
                 </p>
               </div>
-              <Button size="lg" className="h-12 px-8 text-lg" onClick={() => fileInputRef.current?.click()}>
+              <Button
+                size="lg"
+                className="h-12 px-8 text-lg"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <FileText className="w-5 h-5 mr-2" />
                 Pilih File
               </Button>
-              <input ref={fileInputRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={handleFileChange} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                hidden
+                accept=".xlsx,.xls,.csv"
+                onChange={handleFileChange}
+              />
             </div>
             {fileError && <div className="mt-4 text-red-600 text-center">{fileError}</div>}
           </div>
@@ -506,7 +582,9 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
                 ) : (
                   <CheckCircle className="w-6 h-6 text-green-600" />
                 )}
-                <span className="text-lg">{uploadStep === 2 ? "Memproses file..." : "File berhasil divalidasi"}</span>
+                <span className="text-lg">
+                  {uploadStep === 2 ? "Memproses file..." : "File berhasil divalidasi"}
+                </span>
               </div>
             </div>
           )}
