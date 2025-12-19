@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
-export interface AuthUser {
+export type AuthUser = {
   id: string;
-  role: "superadmin" | "admin" | "officer";
-}
+  email: string;
+  role: string;
+  name?: string;
+};
 
-// Proper global augmentation for req.user
 declare global {
   namespace Express {
     interface Request {
@@ -15,51 +16,24 @@ declare global {
   }
 }
 
-/**
- * Middleware: Verify JWT token and attach user payload to req.user
- */
-export const requireAuth = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  const header = req.headers.authorization;
-
-  if (!header || !header.startsWith("Bearer ")) {
-    res.status(401).json({ message: "No token provided" });
-    return;
-  }
-
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
-    const token = header.split(" ")[1];
-    // JWT payload must include userId and role
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;
-      role: string;
-    };
+    const auth = req.headers.authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
 
-    req.user = { id: payload.userId, role: payload.role as AuthUser["role"] };
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized (missing token)" });
+    }
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      return res.status(500).json({ message: "Server misconfigured (JWT_SECRET missing)" });
+    }
+
+    const decoded = jwt.verify(token, secret) as AuthUser;
+    req.user = decoded;
     next();
-  } catch (err) {
-    res.status(401).json({ message: "Invalid or expired token" });
+  } catch {
+    return res.status(401).json({ message: "Unauthorized (invalid token)" });
   }
-};
-
-/**
- * Middleware: Restrict access based on user roles
- */
-export const requireRole =
-  (...roles: AuthUser["role"][]) =>
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    if (!req.user) {
-      res.status(401).json({ message: "Unauthorized: No user context" });
-      return;
-    }
-
-    if (!roles.includes(req.user.role)) {
-      res.status(403).json({ message: "Forbidden: Insufficient privileges" });
-      return;
-    }
-
-    next();
-  };
+}

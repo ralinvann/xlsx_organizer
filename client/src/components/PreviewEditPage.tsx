@@ -47,6 +47,154 @@ type RowIssue = {
   messages: string[];
 };
 
+type HeaderCell = {
+  text: string;
+  rowSpan: number;
+  colSpan: number;
+  hidden: boolean;
+};
+
+// ---- Robust merged header builder ----
+function safeStr(v: any) {
+  return String(v ?? "").trim();
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function normalizeAndClampMerges(
+  merges: any[],
+  headerHeight: number,
+  maxCols: number
+) {
+  const out: any[] = [];
+  for (const m of merges || []) {
+    if (!m?.s || !m?.e) continue;
+    if (typeof m.s.r !== "number" || typeof m.s.c !== "number") continue;
+    if (typeof m.e.r !== "number" || typeof m.e.c !== "number") continue;
+
+    // clamp to header grid
+    const s = {
+      r: clamp(m.s.r, 0, headerHeight - 1),
+      c: clamp(m.s.c, 0, maxCols - 1),
+    };
+    const e = {
+      r: clamp(m.e.r, 0, headerHeight - 1),
+      c: clamp(m.e.c, 0, maxCols - 1),
+    };
+
+    // ensure ordering
+    const sr = Math.min(s.r, e.r);
+    const er = Math.max(s.r, e.r);
+    const sc = Math.min(s.c, e.c);
+    const ec = Math.max(s.c, e.c);
+
+    // discard no-op merges
+    if (sr === er && sc === ec) continue;
+
+    out.push({ s: { r: sr, c: sc }, e: { r: er, c: ec } });
+  }
+
+  // sort bigger merges first to avoid “nested-like” conflicts
+  out.sort((a, b) => {
+    const areaA = (a.e.r - a.s.r + 1) * (a.e.c - a.s.c + 1);
+    const areaB = (b.e.r - b.s.r + 1) * (b.e.c - b.s.c + 1);
+    if (areaB !== areaA) return areaB - areaA;
+    if (a.s.r !== b.s.r) return a.s.r - b.s.r;
+    return a.s.c - b.s.c;
+  });
+
+  return out;
+}
+
+function buildHeaderGrid(args: {
+  hbRows: any[][];
+  merges: any[];
+  headerKeys: string[];
+  headerLabels: string[];
+}) {
+  const { hbRows, merges, headerKeys, headerLabels } = args;
+  const headerHeight = Math.max(1, hbRows?.length || 1);
+  const maxCols = Math.max(1, headerKeys?.length || 1);
+
+  // init grid with plain cells
+  const grid: HeaderCell[][] = Array.from({ length: headerHeight }).map((_, r) =>
+    Array.from({ length: maxCols }).map((__, c) => {
+      // default: take actual header block cell
+      let text = safeStr(hbRows?.[r]?.[c] ?? "");
+
+      // if bottom row is empty, fallback to headerLabels/Keys
+      if (!text && r === headerHeight - 1) {
+        text = safeStr(headerLabels?.[c] ?? headerKeys?.[c] ?? "");
+      }
+
+      return { text, rowSpan: 1, colSpan: 1, hidden: false };
+    })
+  );
+
+  // occupancy map: true if cell already hidden by a merge
+  const covered: boolean[][] = Array.from({ length: headerHeight }).map(() =>
+    Array.from({ length: maxCols }).map(() => false)
+  );
+
+  const normMerges = normalizeAndClampMerges(merges || [], headerHeight, maxCols);
+
+  for (const m of normMerges) {
+    const sr = m.s.r;
+    const sc = m.s.c;
+    const er = m.e.r;
+    const ec = m.e.c;
+
+    // if top-left already covered by a previous merge, skip this merge
+    if (covered[sr]?.[sc]) continue;
+
+    // detect overlap conflicts: if any cell is already covered, skip (keeps layout sane)
+    let conflict = false;
+    for (let r = sr; r <= er; r++) {
+      for (let c = sc; c <= ec; c++) {
+        if (covered[r]?.[c]) {
+          conflict = true;
+          break;
+        }
+      }
+      if (conflict) break;
+    }
+    if (conflict) continue;
+
+    // apply merge: top-left spans; others hidden
+    grid[sr][sc].rowSpan = er - sr + 1;
+    grid[sr][sc].colSpan = ec - sc + 1;
+
+    // prefer top-left text if empty: try find any text inside the region
+    if (!grid[sr][sc].text) {
+      for (let r = sr; r <= er; r++) {
+        for (let c = sc; c <= ec; c++) {
+          const t = safeStr(hbRows?.[r]?.[c] ?? "");
+          if (t) {
+            grid[sr][sc].text = t;
+            r = er + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    for (let r = sr; r <= er; r++) {
+      for (let c = sc; c <= ec; c++) {
+        if (r === sr && c === sc) continue;
+        grid[r][c].hidden = true;
+        covered[r][c] = true;
+      }
+    }
+  }
+
+  // optional: hide truly blank header cells that are not merged (but keep bottom row fallbacks)
+  // (leave as-is for now, since some templates intentionally have blanks)
+
+  return { grid, headerHeight, maxCols };
+}
+
 export function PreviewEditPage({
   initialData = null,
   onDone,
@@ -167,8 +315,6 @@ export function PreviewEditPage({
     return null;
   };
 
-  // Build a flexible mapping so you can validate even if headers are normalized:
-  // "nama_lengkap", "nama", "nik", "no_ktp", etc.
   const fieldHints = useMemo(() => {
     if (!rows || rows.length === 0) return null;
     const r0 = rows[0];
@@ -204,7 +350,6 @@ export function PreviewEditPage({
       const msgsError: string[] = [];
       const msgsWarn: string[] = [];
 
-      // Required checks only if the column exists in the file
       if (namaKey && !hasValue(r[namaKey])) msgsError.push(`Kolom "${namaKey}" kosong`);
       if (nikKey && !hasValue(r[nikKey])) msgsError.push(`Kolom "${nikKey}" kosong`);
       if (umurKey) {
@@ -212,7 +357,6 @@ export function PreviewEditPage({
         if (Number.isNaN(ageNum)) msgsError.push(`Kolom "${umurKey}" bukan angka`);
       }
 
-      // Warning checks (if present)
       if (bpKey) {
         const bp = toStr(r[bpKey]);
         const sysRaw = bp.includes("/") ? bp.split("/")[0] : bp;
@@ -347,7 +491,6 @@ export function PreviewEditPage({
       } catch {}
 
       if (typeof onDone === "function") onDone();
-
     } catch (e: any) {
       const msg =
         e?.response?.data?.message ||
@@ -379,6 +522,19 @@ export function PreviewEditPage({
       </div>
     );
   }
+
+  // prebuild header grid once
+  const headerRender = useMemo(() => {
+    if (!payload?.headerBlock) return null;
+    const hb = payload.headerBlock;
+    return buildHeaderGrid({
+      hbRows: hb.rows || [],
+      merges: hb.merges || [],
+      headerKeys,
+      headerLabels,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload?.headerBlock, headerKeys.join("|"), headerLabels.join("|")]);
 
   return (
     <div className="p-6 space-y-8">
@@ -453,7 +609,6 @@ export function PreviewEditPage({
             </div>
           </div>
 
-          {/* Show exactly which rows fail */}
           {errorIssues.length > 0 && (
             <div className="border rounded-lg p-4 bg-red-50">
               <div className="font-semibold text-red-700 text-lg mb-2">
@@ -507,70 +662,35 @@ export function PreviewEditPage({
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                {payload?.headerBlock ? (
+                {payload?.headerBlock && headerRender ? (
                   (() => {
-                    const hb = payload.headerBlock!;
-                    const merges = (hb.merges || []).filter((m: any) => m && typeof m.s?.c === "number");
-                    const headerHeight = Math.max(1, (hb.rows || []).length);
-                    const maxCols = headerKeys.length;
+                    const { grid, headerHeight, maxCols } = headerRender;
 
-                    const visibleMerges = merges.filter((m: any) => {
-                      if (!m) return false;
-                      const startC = Math.max(0, m.s.c);
-                      const endC = m.e.c;
-                      return startC <= maxCols - 1 && endC >= 0 && m.s.r >= 0 && m.e.r < headerHeight;
-                    });
-
-                    const isInsideMerge = (localR: number, localC: number) =>
-                      visibleMerges.some((m: any) => localR >= m.s.r && localR <= m.e.r && localC >= m.s.c && localC <= m.e.c);
-
-                    const getMergeStartingAt = (localR: number, localC: number) =>
-                      visibleMerges.find((m: any) => m.s.r === localR && m.s.c === localC);
-
-                    return Array.from({ length: headerHeight }).map((_, rowIdx) => {
-                      const localRowIdx = rowIdx;
-                      const consumed = new Set<number>();
+                    return Array.from({ length: headerHeight }).map((_, r) => {
                       return (
-                        <TableRow key={`hdr-${rowIdx}`}>
-                          {Array.from({ length: maxCols }).map((__, colIdx) => {
-                            if (consumed.has(colIdx)) return null;
+                        <TableRow key={`hdr-${r}`}>
+                          {Array.from({ length: maxCols }).map((__, c) => {
+                            const cell = grid[r][c];
+                            if (cell.hidden) return null;
 
-                            const merge = getMergeStartingAt(localRowIdx, colIdx);
-                            if (merge) {
-                              const startC = Math.max(0, merge.s.c);
-                              const endC = Math.min(maxCols - 1, merge.e.c);
-                              const colSpan = Math.max(1, endC - startC + 1);
-                              const rowSpan = Math.max(1, merge.e.r - merge.s.r + 1);
-                              for (let cc = startC; cc <= endC; cc++) consumed.add(cc);
-                              const text = (hb.rows[localRowIdx] && hb.rows[localRowIdx][startC]) ?? "";
-                              return (
-                                <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={colSpan} rowSpan={rowSpan} className="text-lg text-center font-bold">
-                                  {String(text ?? "").trim() || ""}
-                                </TableHead>
-                              );
-                            }
-
-                            if (isInsideMerge(localRowIdx, colIdx)) {
-                              consumed.add(colIdx);
-                              return null;
-                            }
-
-                            const rowSpan = headerHeight - localRowIdx;
-                            consumed.add(colIdx);
-                            const text =
-                              (hb.rows[localRowIdx] && hb.rows[localRowIdx][colIdx]) ??
-                              headerLabels[colIdx] ??
-                              headerKeys[colIdx] ??
-                              "";
+                            // if text is empty, still render to preserve structure
                             return (
-                              <TableHead key={`h-${rowIdx}-${colIdx}`} colSpan={1} rowSpan={rowSpan} className="text-lg text-center font-bold">
-                                {String(text ?? "").trim() || ""}
+                              <TableHead
+                                key={`h-${r}-${c}`}
+                                colSpan={cell.colSpan}
+                                rowSpan={cell.rowSpan}
+                                className="text-lg text-center font-bold whitespace-pre-line"
+                              >
+                                {cell.text || ""}
                               </TableHead>
                             );
                           })}
 
-                          {rowIdx === 0 && isEditing && (
-                            <TableHead rowSpan={headerHeight} className="text-lg text-center font-bold">
+                          {r === 0 && isEditing && (
+                            <TableHead
+                              rowSpan={headerHeight}
+                              className="text-lg text-center font-bold"
+                            >
                               Aksi
                             </TableHead>
                           )}
@@ -593,7 +713,9 @@ export function PreviewEditPage({
               <TableBody>
                 {rows.map((row, idx0) => {
                   const rowIndex = idx0 + 1;
-                  const rowIssue = validationResults.issues.find((x) => String(x.id) === String(row.id));
+                  const rowIssue = validationResults.issues.find(
+                    (x) => String(x.id) === String(row.id)
+                  );
                   const rowHasError = rowIssue?.type === "error";
                   const rowHasWarning = rowIssue?.type === "warning";
 
@@ -601,11 +723,7 @@ export function PreviewEditPage({
                     <TableRow
                       key={String(row.id)}
                       className={
-                        rowHasError
-                          ? "bg-red-50"
-                          : rowHasWarning
-                          ? "bg-yellow-50"
-                          : undefined
+                        rowHasError ? "bg-red-50" : rowHasWarning ? "bg-yellow-50" : undefined
                       }
                     >
                       {headerKeys.map((k) => {
@@ -617,7 +735,8 @@ export function PreviewEditPage({
                             {isEditing && isEditingThisRow ? (
                               (() => {
                                 const lower = k.toLowerCase();
-                                const isNumberish = lower.includes("umur") || typeof cellValue === "number";
+                                const isNumberish =
+                                  lower.includes("umur") || typeof cellValue === "number";
 
                                 if (isNumberish) {
                                   return (
@@ -680,7 +799,11 @@ export function PreviewEditPage({
                                 <Edit3 className="w-4 h-4" />
                               </Button>
                               {(rowHasError || rowHasWarning) && (
-                                <span className={rowHasError ? "text-red-700 text-sm" : "text-yellow-800 text-sm"}>
+                                <span
+                                  className={
+                                    rowHasError ? "text-red-700 text-sm" : "text-yellow-800 text-sm"
+                                  }
+                                >
                                   {rowHasError ? "ERROR" : "WARNING"} #{rowIndex}
                                 </span>
                               )}
@@ -701,7 +824,12 @@ export function PreviewEditPage({
       <Card className="shadow-md">
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button variant="outline" size="lg" className="h-12 px-8 text-lg" onClick={handleCancelImport}>
+            <Button
+              variant="outline"
+              size="lg"
+              className="h-12 px-8 text-lg"
+              onClick={handleCancelImport}
+            >
               <X className="w-5 h-5 mr-2" />
               Batalkan Import
             </Button>
@@ -726,7 +854,9 @@ export function PreviewEditPage({
           <div className="text-center mt-4">
             {errorMsg && <p className="text-lg text-red-600">{errorMsg}</p>}
             {successMsg && <p className="text-lg text-green-600">{successMsg}</p>}
-            <p className="text-lg text-muted-foreground">Data akan disimpan permanen setelah konfirmasi</p>
+            <p className="text-lg text-muted-foreground">
+              Data akan disimpan permanen setelah konfirmasi
+            </p>
           </div>
         </CardContent>
       </Card>
