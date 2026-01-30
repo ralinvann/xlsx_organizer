@@ -1,20 +1,148 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
-import { Users, Shield, Activity, Search, UserPlus, Settings, Eye, Edit3, Trash2 } from "lucide-react";
+import { Users, Shield, Activity, Search, UserPlus, Settings, Eye, Edit3, Trash2, Loader, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { AddUserDialog } from "./AddUserDialog";
 import { useAuth } from "../hooks/useAuth";
+import { api } from "../lib/api";
 
 export function AdminPage() {
   const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
+  const [fetchedUsers, setFetchedUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const { user, ready } = useAuth();
 
   // Strict allowed roles (normalize to uppercase)
   const ALLOWED_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+
+  // Fetch users on component mount
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const response = await api.get("/users");
+        setFetchedUsers(response.data);
+      } catch (err: any) {
+        console.error("Error fetching users:", err);
+        setError(err.response?.data?.message || "Gagal memuat data pengguna");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Only fetch if user is authorized
+    if (ready && user && ALLOWED_ROLES.has(String(user.role || "").toUpperCase())) {
+      fetchUsers();
+    }
+  }, [ready, user]);
+
+  // Format user display name from first, middle, and last names
+  const getFullName = (userData: any) => {
+    const names = [];
+    if (userData.firstName) names.push(userData.firstName);
+    if (userData.middleName) names.push(userData.middleName);
+    if (userData.lastName) names.push(userData.lastName);
+    return names.join(" ") || "Unknown";
+  };
+
+  // Get initials for avatar fallback
+  const getInitials = (userData: any) => {
+    const fullName = getFullName(userData);
+    return fullName
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase();
+  };
+
+  // Filter and sort users
+  const filteredAndSortedUsers = fetchedUsers
+    .filter((userData) => {
+      if (!searchTerm) return true;
+      const fullName = getFullName(userData).toLowerCase();
+      const email = userData.email?.toLowerCase() || "";
+      const role = userData.role?.toLowerCase() || "";
+      const searchLower = searchTerm.toLowerCase();
+      return fullName.includes(searchLower) || email.includes(searchLower) || role.includes(searchLower);
+    })
+    .sort((a, b) => {
+      if (!sortField) return 0;
+      
+      let aValue, bValue;
+      switch (sortField) {
+        case 'name':
+          aValue = getFullName(a).toLowerCase();
+          bValue = getFullName(b).toLowerCase();
+          break;
+        case 'email':
+          aValue = a.email?.toLowerCase() || "";
+          bValue = b.email?.toLowerCase() || "";
+          break;
+        case 'role':
+          aValue = a.role?.toLowerCase() || "";
+          bValue = b.role?.toLowerCase() || "";
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+  // Handle sort click
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get sort icon for a field
+  const getSortIcon = (field: string) => {
+    if (sortField !== field) return <ArrowUpDown className="w-4 h-4" />;
+    return sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
+  };
+
+  // Action handlers
+  const handleViewUser = (userData: any) => {
+    // TODO: Implement view user functionality
+    console.log('View user:', userData);
+    alert(`Melihat detail pengguna: ${getFullName(userData)}`);
+  };
+
+  const handleEditUser = (userData: any) => {
+    // TODO: Implement edit user functionality
+    console.log('Edit user:', userData);
+    alert(`Mengedit pengguna: ${getFullName(userData)}`);
+  };
+
+  const handleDeleteUser = async (userData: any) => {
+    if (!confirm(`Apakah Anda yakin ingin menghapus pengguna ${getFullName(userData)}?`)) {
+      return;
+    }
+    
+    try {
+      await api.delete(`/users/${userData._id}`);
+      setFetchedUsers(prev => prev.filter(u => u._id !== userData._id));
+      alert('Pengguna berhasil dihapus');
+    } catch (err: any) {
+      console.error('Error deleting user:', err);
+      alert('Gagal menghapus pengguna: ' + (err.response?.data?.message || 'Unknown error'));
+    }
+  };
 
   // Wait for auth to initialize
   if (!ready) return <div className="p-6 text-muted-foreground">Memuat data…</div>;
@@ -55,44 +183,8 @@ export function AdminPage() {
     );
   }
 
-  const users = [
-    {
-      id: 1,
-      name: "Dr. Sarah Wijaya",
-      email: "sarah.wijaya@medicare.id",
-      role: "Perawat Senior",
-      status: "Aktif",
-      lastLogin: "2 menit yang lalu",
-      patients: 1247
-    },
-    {
-      id: 2,
-      name: "Dr. Ahmad Rahman",
-      email: "ahmad.rahman@medicare.id",
-      role: "Dokter",
-      status: "Aktif",
-      lastLogin: "1 jam yang lalu",
-      patients: 892
-    },
-    {
-      id: 3,
-      name: "Siti Nurhaliza",
-      email: "siti.nurhaliza@medicare.id",
-      role: "Perawat",
-      status: "Nonaktif",
-      lastLogin: "3 hari yang lalu",
-      patients: 634
-    },
-    {
-      id: 4,
-      name: "Budi Santoso",
-      email: "budi.santoso@medicare.id",
-      role: "Admin",
-      status: "Aktif",
-      lastLogin: "30 menit yang lalu",
-      patients: 0
-    }
-  ];
+  // Use filtered and sorted users or empty array while loading
+  const displayUsers = isLoading ? [] : filteredAndSortedUsers;
 
   const systemStats = [
     {
@@ -129,35 +221,25 @@ export function AdminPage() {
     }
   ];
 
+  // Format last login info for logs
+  const getLastLoginLogs = () => {
+    return fetchedUsers
+      .filter(user => user.lastLoginAt)
+      .sort((a, b) => new Date(b.lastLoginAt!).getTime() - new Date(a.lastLoginAt!).getTime())
+      .slice(0, 5) // Show only 5 most recent
+      .map(user => ({
+        user: getFullName(user),
+        action: "Login sistem",
+        details: `Akses dari IP ${user.lastLoginIP || 'unknown'}`,
+        timestamp: user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('id-ID') : 'Unknown',
+        status: "info" as const,
+        bgColor: "bg-blue-100",
+        textColor: "text-blue-600"
+      }));
+  };
+
   const recentLogs = [
-    {
-      user: "Dr. Sarah Wijaya",
-      action: "Upload data kesehatan",
-      details: "45 record pasien baru",
-      timestamp: "2 jam yang lalu",
-      status: "success"
-    },
-    {
-      user: "Dr. Ahmad Rahman",
-      action: "Login sistem",
-      details: "Akses dari IP 192.168.1.100",
-      timestamp: "1 jam yang lalu",
-      status: "info"
-    },
-    {
-      user: "System",
-      action: "Backup database",
-      details: "Scheduled backup completed",
-      timestamp: "6 jam yang lalu",
-      status: "success"
-    },
-    {
-      user: "Budi Santoso",
-      action: "User management",
-      details: "Created new user account",
-      timestamp: "1 hari yang lalu",
-      status: "success"
-    }
+    ...getLastLoginLogs()
   ];
 
   return (
@@ -225,72 +307,120 @@ export function AdminPage() {
                 <Input 
                   placeholder="Cari pengguna..." 
                   className="pl-10 h-10 w-64"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-lg">Pengguna</TableHead>
-                  <TableHead className="text-lg">Role</TableHead>
-                  <TableHead className="text-lg">Status</TableHead>
-                  <TableHead className="text-lg">Pasien</TableHead>
-                  <TableHead className="text-lg">Login Terakhir</TableHead>
-                  <TableHead className="text-lg">Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.id} className="hover:bg-muted/50">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarImage src={`/placeholder-avatar-${user.id}.jpg`} />
-                          <AvatarFallback>{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="text-lg font-medium">{user.name}</div>
-                          <div className="text-sm text-muted-foreground">{user.email}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-sm px-3 py-1">
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={user.status === "Aktif" ? "default" : "secondary"}
-                        className="text-sm px-3 py-1"
+          {error && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+              {error}
+            </div>
+          )}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Memuat data pengguna...</span>
+            </div>
+          ) : displayUsers.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">Tidak ada pengguna ditemukan</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-lg">
+                      <Button 
+                        variant="ghost" 
+                        className="h-auto p-0 font-semibold hover:bg-transparent"
+                        onClick={() => handleSort('name')}
                       >
-                        {user.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-lg">{user.patients}</TableCell>
-                    <TableCell className="text-lg">{user.lastLogin}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0">
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0">
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                        Pengguna
+                        <span className="ml-2">{getSortIcon('name')}</span>
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-lg">
+                      <Button 
+                        variant="ghost" 
+                        className="h-auto p-0 font-semibold hover:bg-transparent"
+                        onClick={() => handleSort('email')}
+                      >
+                        Email
+                        <span className="ml-2">{getSortIcon('email')}</span>
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-lg">
+                      <Button 
+                        variant="ghost" 
+                        className="h-auto p-0 font-semibold hover:bg-transparent"
+                        onClick={() => handleSort('role')}
+                      >
+                        Role
+                        <span className="ml-2">{getSortIcon('role')}</span>
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-lg">Aksi</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {displayUsers.map((userData) => (
+                    <TableRow key={userData._id} className="hover:bg-muted/50">
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarImage src={userData.profilePicture} alt={getFullName(userData)} />
+                            <AvatarFallback>{getInitials(userData)}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="text-lg font-medium">{getFullName(userData)}</div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-lg">{userData.email}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-sm px-3 py-1 capitalize">
+                          {userData.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleViewUser(userData)}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleEditUser(userData)}
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteUser(userData)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -303,11 +433,7 @@ export function AdminPage() {
           <div className="space-y-4">
             {recentLogs.map((log, index) => (
               <div key={index} className="flex items-start gap-4 p-4 bg-muted/30 rounded-lg">
-                <div className={`p-2 rounded-full ${
-                  log.status === 'success' ? 'bg-green-100 text-green-600' :
-                  log.status === 'warning' ? 'bg-yellow-100 text-yellow-600' :
-                  'bg-blue-100 text-blue-600'
-                }`}>
+                <div className={`p-2 rounded-full ${log.bgColor} ${log.textColor}`}>
                   <Activity className="w-5 h-5" />
                 </div>
                 <div className="flex-1">

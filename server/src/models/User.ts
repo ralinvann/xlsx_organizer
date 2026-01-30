@@ -8,6 +8,8 @@ export interface IUser extends Document {
   password: string;
   role: "superadmin" | "admin" | "officer";
   profilePicture?: string;
+  lastLoginAt?: Date;
+  lastLoginIP?: string;
   createdAt: Date;
 }
 
@@ -23,6 +25,8 @@ const userSchema = new Schema<IUser>({
     default: "officer",
   },
   profilePicture: { type: String, default: "" },
+  lastLoginAt: { type: Date },
+  lastLoginIP: { type: String },
   createdAt: { type: Date, default: Date.now },
 });
 

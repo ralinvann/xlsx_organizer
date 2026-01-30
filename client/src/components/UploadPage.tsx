@@ -33,6 +33,17 @@ type UploadPayload = {
   };
 };
 
+// Type for worksheet data
+type WorksheetData = UploadPayload & {
+  worksheetName: string;
+};
+
+type MultiWorksheetPayload = {
+  fileName?: string;
+  worksheets: WorksheetData[];
+  activeWorksheetIndex?: number;
+};
+
 export function UploadPage({ onNavigate }: UploadPageProps) {
   const [uploadStep, setUploadStepState] = useState<number>(1);
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -228,6 +239,119 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     }
   }
 
+  // Process a single worksheet and return UploadPayload
+  function processWorksheet(workbook: XLSX.WorkBook, sheetName: string): UploadPayload | null {
+    try {
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) return null;
+
+      // Full sheet AoA
+      const rawAoA: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+
+      // apply merged-cell propagation so merged ranges show the top-left value in all cells
+      fillMergedCellsFromSheet(worksheet, rawAoA);
+
+      // Meta pairs: B2/C2, B3/C3, B4/C4
+      const { metaPairs, metaMap } = readMetaPairsFromAoA(rawAoA);
+
+      // Data stop marker
+      const visibleStartRow = 5; // hide rows 1..5 (1-based). zero-based index 5 is row 6 in Excel.
+      const stopRowIdx = findStopRowIndex(rawAoA, visibleStartRow);
+
+      // Work only inside [visibleStartRow..stop)
+      const sliced = rawAoA.slice(visibleStartRow, stopRowIdx);
+
+      // Inspect merged ranges to detect a multi-row header block (if present)
+      const allMerges = worksheet["!merges"] || [];
+      // only consider merges that start within the visible header area (after hidden rows)
+      const mergesInTop = (allMerges as any[]).filter((m) => m && typeof m.s?.r === "number" && m.s.r >= visibleStartRow && m.s.r < stopRowIdx);
+
+      let headerStart = -1;
+      let headerEnd = -1;
+      if (mergesInTop.length > 0) {
+        headerStart = Math.min(...mergesInTop.map((m) => m.s.r));
+        headerEnd = Math.max(...mergesInTop.map((m) => m.e.r));
+        // guard: keep header block inside visible range
+        if (headerStart < visibleStartRow) headerStart = visibleStartRow;
+        if (headerEnd >= stopRowIdx) headerEnd = stopRowIdx - 1;
+      } else {
+        // fallback: single-row header detection (previous behaviour)
+        const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
+        headerStart = visibleStartRow + localHeaderOffset;
+        headerEnd = headerStart;
+      }
+
+      // bottom-most header row is the last row of the header block
+      const bottomHeaderRowIndex = headerEnd;
+
+      const rawHeaderRow = rawAoA[bottomHeaderRowIndex] ?? [];
+
+      // Trim leading empty columns so header/merge columns align to visible data columns
+      const firstNonEmptyCol = rawHeaderRow.findIndex((c: any) => cleanCell(c) !== "");
+      const leftCol = firstNonEmptyCol >= 0 ? firstNonEmptyCol : 0;
+
+      const trimmedHeaderRow = (rawHeaderRow || []).slice(leftCol);
+      const headerKeys = normalizeHeaders(trimmedHeaderRow);
+      const headerLabels: string[] = trimmedHeaderRow.map((c: any) => cleanCell(c));
+      const headerOrder = [...headerKeys];
+
+      // Body rows: from (bottomHeaderRowIndex+1) to stopRowIdx (exclusive)
+      const bodyAoA = rawAoA.slice(bottomHeaderRowIndex + 1, stopRowIdx);
+
+      // Convert AoA to objects using headerKeys
+      const cleanedRows = bodyAoA
+        .filter((rowArr) => (rowArr || []).some((x) => cleanCell(x) !== "")) // skip empty row
+        .map((rowArr, idx) => {
+          const obj: Record<string, any> = {};
+          headerKeys.forEach((k, i) => {
+            const v = rowArr?.[leftCol + i] ?? "";
+            obj[k] = typeof v === "string" ? v.trim() : v;
+          });
+          obj.id = `row_${Date.now()}_${idx + 1}`;
+          return obj;
+        });
+
+      if (cleanedRows.length === 0) {
+        return null;
+      }
+
+      // normalize merges to the trimmed-left column coordinates so preview can render using local indices
+      const rawHeaderBlockRows = rawAoA.slice(headerStart, headerEnd + 1);
+      const normalizedMerges = (mergesInTop || []).map((m: any) => ({
+        s: { r: m.s.r - headerStart, c: m.s.c - leftCol },
+        e: { r: m.e.r - headerStart, c: m.e.c - leftCol },
+      }));
+
+      const headerBlock = {
+        start: headerStart,
+        end: headerEnd,
+        rows: rawHeaderBlockRows.map((r) => (r || []).slice(leftCol)),
+        merges: normalizedMerges,
+      };
+
+      const payload: UploadPayload = {
+        kabupaten: metaMap.kabupaten ?? "",
+        puskesmas: metaMap.puskesmas ?? "",
+        bulanTahun: metaMap.bulanTahun ?? "",
+        metaPairs,
+
+        rows: cleanedRows,
+        headerKeys,
+        headerLabels,
+        headerOrder,
+
+        fileName: undefined,
+        sourceSheetName: sheetName,
+        headerBlock,
+      };
+
+      return payload;
+    } catch (err) {
+      console.warn(`Error processing sheet "${sheetName}":`, err);
+      return null;
+    }
+  }
+
   const handleFile = (file: File) => {
     setFileError(null);
 
@@ -258,120 +382,53 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
         const data = new Uint8Array(arrayBuffer as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
 
-        const sheetName = workbook.SheetNames[0];
-        if (!sheetName) throw new Error("No sheets found");
-
-        const worksheet = workbook.Sheets[sheetName];
-
-        // Full sheet AoA
-        const rawAoA: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-
-        // apply merged-cell propagation so merged ranges show the top-left value in all cells
-        fillMergedCellsFromSheet(worksheet, rawAoA);
-
-        // Meta pairs: B2/C2, B3/C3, B4/C4
-        const { metaPairs, metaMap } = readMetaPairsFromAoA(rawAoA);
-
-        // Data stop marker
-        const visibleStartRow = 5; // hide rows 1..5 (1-based). zero-based index 5 is row 6 in Excel.
-        const stopRowIdx = findStopRowIndex(rawAoA, visibleStartRow);
-
-        // Work only inside [visibleStartRow..stop)
-        const sliced = rawAoA.slice(visibleStartRow, stopRowIdx);
-
-        // Inspect merged ranges to detect a multi-row header block (if present)
-        const allMerges = worksheet["!merges"] || [];
-        // only consider merges that start within the visible header area (after hidden rows)
-        const mergesInTop = (allMerges as any[]).filter((m) => m && typeof m.s?.r === "number" && m.s.r >= visibleStartRow && m.s.r < stopRowIdx);
-
-        let headerStart = -1;
-        let headerEnd = -1;
-        if (mergesInTop.length > 0) {
-          headerStart = Math.min(...mergesInTop.map((m) => m.s.r));
-          headerEnd = Math.max(...mergesInTop.map((m) => m.e.r));
-          // guard: keep header block inside visible range
-          if (headerStart < visibleStartRow) headerStart = visibleStartRow;
-          if (headerEnd >= stopRowIdx) headerEnd = stopRowIdx - 1;
-        } else {
-          // fallback: single-row header detection (previous behaviour)
-          const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
-          headerStart = visibleStartRow + localHeaderOffset;
-          headerEnd = headerStart;
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+          throw new Error("No sheets found in workbook");
         }
 
-        // bottom-most header row is the last row of the header block
-        const bottomHeaderRowIndex = headerEnd;
+        // Process all sheets
+        const processedSheets: WorksheetData[] = [];
+        let hasValidSheets = false;
 
-        const rawHeaderRow = rawAoA[bottomHeaderRowIndex] ?? [];
-
-        // Trim leading empty columns so header/merge columns align to visible data columns
-        const firstNonEmptyCol = rawHeaderRow.findIndex((c: any) => cleanCell(c) !== "");
-        const leftCol = firstNonEmptyCol >= 0 ? firstNonEmptyCol : 0;
-
-        const trimmedHeaderRow = (rawHeaderRow || []).slice(leftCol);
-        const headerKeys = normalizeHeaders(trimmedHeaderRow);
-        const headerLabels: string[] = trimmedHeaderRow.map((c: any) => cleanCell(c));
-        const headerOrder = [...headerKeys];
-
-        // Body rows: from (bottomHeaderRowIndex+1) to stopRowIdx (exclusive)
-        const bodyAoA = rawAoA.slice(bottomHeaderRowIndex + 1, stopRowIdx);
-
-        // Convert AoA to objects using headerKeys
-        const cleanedRows = bodyAoA
-          .filter((rowArr) => (rowArr || []).some((x) => cleanCell(x) !== "")) // skip empty row
-          .map((rowArr, idx) => {
-            const obj: Record<string, any> = {};
-            headerKeys.forEach((k, i) => {
-              const v = rowArr?.[leftCol + i] ?? "";
-              obj[k] = typeof v === "string" ? v.trim() : v;
+        for (const sheetName of workbook.SheetNames) {
+          const payload = processWorksheet(workbook, sheetName);
+          if (payload) {
+            processedSheets.push({
+              ...payload,
+              worksheetName: sheetName,
             });
-            obj.id = `row_${Date.now()}_${idx + 1}`;
-            return obj;
-          });
-
-        if (!metaMap.kabupaten || !metaMap.puskesmas || !metaMap.bulanTahun) {
-          console.warn("Meta header missing some values:", metaMap);
+            hasValidSheets = true;
+          }
         }
-        if (cleanedRows.length === 0) {
-          setFileError("Tidak ada row data yang terbaca (cek format dan posisi tabel).");
+
+        if (!hasValidSheets || processedSheets.length === 0) {
+          setFileError("Tidak ada row data yang terbaca di semua sheet (cek format dan posisi tabel).");
           return;
         }
 
-        // normalize merges to the trimmed-left column coordinates so preview can render using local indices
-        const rawHeaderBlockRows = rawAoA.slice(headerStart, headerEnd + 1);
-        const normalizedMerges = (mergesInTop || []).map((m: any) => ({
-          s: { r: m.s.r - headerStart, c: m.s.c - leftCol },
-          e: { r: m.e.r - headerStart, c: m.e.c - leftCol },
-        }));
+        // Decide: single sheet or multi-sheet payload
+        let dataToSave: UploadPayload | MultiWorksheetPayload;
 
-        const headerBlock = {
-          start: headerStart,
-          end: headerEnd,
-          rows: rawHeaderBlockRows.map((r) => (r || []).slice(leftCol)),
-          merges: normalizedMerges,
-        };
-
-        const payload: UploadPayload = {
-          kabupaten: metaMap.kabupaten ?? "",
-          puskesmas: metaMap.puskesmas ?? "",
-          bulanTahun: metaMap.bulanTahun ?? "",
-          metaPairs,
-
-          rows: cleanedRows,
-          headerKeys,
-          headerLabels,
-          headerOrder,
-
-          fileName: file.name,
-          sourceSheetName: sheetName,
-          headerBlock,
-        };
+        if (processedSheets.length === 1) {
+          // Single sheet: save as regular UploadPayload
+          dataToSave = {
+            ...processedSheets[0],
+            fileName: file.name,
+          };
+        } else {
+          // Multiple sheets: save as MultiWorksheetPayload
+          dataToSave = {
+            fileName: file.name,
+            worksheets: processedSheets,
+            activeWorksheetIndex: 0,
+          };
+        }
 
         // Step -> persist quickly
         setUploadStep(2);
 
         try {
-          sessionStorage.setItem("previewData", JSON.stringify(payload));
+          sessionStorage.setItem("previewData", JSON.stringify(dataToSave));
         } catch (err) {
           console.warn("sessionStorage write failed", err);
         }
@@ -381,7 +438,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           setUploadStep(3);
 
           if (typeof onNavigate === "function") {
-            onNavigate("preview", { data: payload });
+            onNavigate("preview", { data: dataToSave });
           }
 
           try {

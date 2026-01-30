@@ -76,6 +76,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Update last login info
+    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || "unknown";
+    await User.findByIdAndUpdate(user._id, {
+      lastLoginAt: new Date(),
+      lastLoginIP: clientIP
+    });
+
     // Include userId and role in JWT payload
     const token = jwt.sign(
       { userId: user._id, role: user.role },
@@ -92,6 +99,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        lastLoginAt: user.lastLoginAt,
+        lastLoginIP: user.lastLoginIP,
       },
     });
   } catch (err) {
@@ -128,6 +137,8 @@ export const getCurrentUser = async (
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        lastLoginAt: user.lastLoginAt,
+        lastLoginIP: user.lastLoginIP,
         createdAt: user.createdAt,
       },
     });

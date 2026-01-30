@@ -13,6 +13,9 @@ export interface IUser {
   role: Role;
   profilePicture?: string;
   createdAt?: string;
+  lastLoginAt?: string;
+  lastLoginIP?: string;
+  lastUserAgent?: string;
 }
 
 /** Helper: accept either { user: IUser } or IUser */
@@ -28,20 +31,18 @@ export function useAuth() {
     try { return cached ? JSON.parse(cached) : null; } catch { return null; }
   });
 
-  const [token, setToken] = useState<string>(() => localStorage.getItem("token") || "");
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
 
-  const isAuthed = useMemo(() => Boolean(token), [token]);
+  const isAuthed = useMemo(() => Boolean(user), [user]);
 
-  const persist = useCallback((u: IUser | null, t?: string) => {
-    if (u) localStorage.setItem("user", JSON.stringify(u));
-    else localStorage.removeItem("user");
-
-    if (t !== undefined) {
-      if (t) localStorage.setItem("token", t);
-      else localStorage.removeItem("token");
-      setToken(t || "");
+  const persist = useCallback((u: IUser | null, token?: string) => {
+    if (u) {
+      localStorage.setItem("user", JSON.stringify(u));
+      if (token) localStorage.setItem("token", token);
+    } else {
+      localStorage.removeItem("user");
+      localStorage.removeItem("token");
     }
 
     setUser(u);
@@ -49,15 +50,14 @@ export function useAuth() {
 
   /**
    * LOGIN
-   * Backend expects POST /api/auth/login and returns { token, user }
+   * Backend expects POST /api/auth/login and returns { user }
    */
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
       const { data } = await api.post("/auth/login", { email, password });
-      const nextToken = data?.token ?? "";
-      const nextUser = extractUser(data?.user ?? data);
-      persist(nextUser, nextToken);
+      const nextUser = extractUser(data);
+      persist(nextUser, data.token);
       setReady(true);
       return { ok: true };
     } catch (e: any) {
@@ -73,22 +73,19 @@ export function useAuth() {
    * GET /api/auth/me -> { user }
    */
   const fetchMe = useCallback(async () => {
-    const t = localStorage.getItem("token");
-    if (!t) { setReady(true); return; }
-
     setLoading(true);
     try {
       const { data } = await api.get("/auth/me");
       const nextUser = extractUser(data);
       if (!nextUser) {
-        // backend weirdness -> drop token
-        persist(null, "");
+        // backend weirdness -> clear session
+        persist(null);
       } else {
-        persist(nextUser, t);
+        persist(nextUser);
       }
     } catch {
-      // invalid token or network error -> drop session
-      persist(null, "");
+      // invalid token or network error -> clear session
+      persist(null);
     } finally {
       setLoading(false);
       setReady(true);
@@ -103,7 +100,7 @@ export function useAuth() {
     try {
       const { data } = await api.put("/users/me", payload);
       const nextUser = extractUser(data);
-      persist(nextUser, localStorage.getItem("token") || "");
+      persist(nextUser);
       return { ok: true, user: nextUser };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Update failed";
@@ -122,7 +119,7 @@ export function useAuth() {
         headers: { "Content-Type": "multipart/form-data" }
       });
       const nextUser = extractUser(data);
-      persist(nextUser, localStorage.getItem("token") || "");
+      persist(nextUser);
       return { ok: true, user: nextUser };
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Upload failed";
@@ -132,11 +129,18 @@ export function useAuth() {
     }
   }, [persist]);
 
-  const logout = useCallback(() => {
-    persist(null, "");
-    setReady(true);
-    // optionally: notify other tabs
-    window.dispatchEvent(new Event("auth-logout"));
+  const logout = useCallback(async () => {
+    try {
+      await api.post("/auth/logout");
+    } catch (error) {
+      // Even if the logout request fails, we should clear local state
+      console.warn("Logout request failed:", error);
+    } finally {
+      persist(null);
+      setReady(true);
+      // optional: notify other tabs
+      window.dispatchEvent(new Event("auth-logout"));
+    }
   }, [persist]);
 
   // Single restore flow
@@ -144,5 +148,5 @@ export function useAuth() {
     void fetchMe();
   }, [fetchMe]);
 
-  return { user, token, isAuthed, loading, ready, login, fetchMe, updateProfile, uploadAvatar, logout };
+  return { user, isAuthed, loading, ready, login, fetchMe, updateProfile, uploadAvatar, logout };
 }

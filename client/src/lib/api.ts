@@ -28,9 +28,9 @@ export const api = axios.create({
 /* ---------------- REQUEST INTERCEPTOR ---------------- */
 
 api.interceptors.request.use((config) => {
+  // Add JWT token to Authorization header if available
   const token = localStorage.getItem("token");
   if (token) {
-    config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -54,9 +54,8 @@ api.interceptors.response.use(
       return api(original);
     }
 
-    // 401 → force logout
+    // 401 → force logout (but don't remove tokens from localStorage since we use cookies now)
     if (error.response?.status === 401) {
-      localStorage.removeItem("token");
       localStorage.removeItem("user");
 
       // optional but recommended
