@@ -6,13 +6,10 @@ function isNonEmptyString(v: any) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
-/**
- * CREATE REPORT
- */
 export const createElderlyMonthlyReport = async (
   req: Request,
   res: Response
-): Promise<Response> => {
+): Promise<void> => {
   try {
     const {
       kabupaten,
@@ -32,21 +29,24 @@ export const createElderlyMonthlyReport = async (
       !isNonEmptyString(puskesmas) ||
       !isNonEmptyString(bulanTahun)
     ) {
-      return res
+      res
         .status(400)
         .json({ message: "kabupaten, puskesmas, bulanTahun wajib." });
+      return;
     }
 
     if (!Array.isArray(headerKeys) || headerKeys.length === 0) {
-      return res
+      res
         .status(400)
         .json({ message: "headerKeys wajib dan tidak boleh kosong." });
+      return;
     }
 
     if (!Array.isArray(rowData) || rowData.length === 0) {
-      return res
+      res
         .status(400)
         .json({ message: "rowData kosong. Tidak ada data untuk disimpan." });
+      return;
     }
 
     const doc = await ElderlyMonthlyReport.create({
@@ -65,112 +65,82 @@ export const createElderlyMonthlyReport = async (
       status: "imported",
     });
 
-    return res.status(201).json({
-      message: "Saved",
-      reportId: doc._id,
-      report: doc,
-    });
+    res.status(201).json({ message: "Saved", reportId: doc._id, report: doc });
   } catch (e) {
     console.error("createElderlyMonthlyReport error:", e);
-    return res.status(500).json({
-      message: "Server error saving report.",
-    });
+    res.status(500).json({ message: "Server error saving report." });
   }
 };
 
-/**
- * LIST REPORTS
- */
 export const getElderlyMonthlyReports = async (
-  req: Request,
+  _req: Request,
   res: Response
-): Promise<Response> => {
+): Promise<void> => {
   try {
     const docs = await ElderlyMonthlyReport.find()
       .sort({ createdAt: -1 })
       .limit(50);
-
-    return res.json({ items: docs });
+    res.json({ items: docs });
   } catch (e) {
     console.error("getElderlyMonthlyReports error:", e);
-    return res.status(500).json({ message: "Server error." });
+    res.status(500).json({ message: "Server error." });
   }
 };
 
-/**
- * GET REPORT BY ID
- */
 export const getElderlyMonthlyReportById = async (
   req: Request,
   res: Response
-): Promise<Response> => {
+): Promise<void> => {
   try {
     const { id } = req.params;
-
     const doc = await ElderlyMonthlyReport.findById(id);
 
     if (!doc) {
-      return res.status(404).json({ message: "Not found." });
+      res.status(404).json({ message: "Not found." });
+      return;
     }
 
-    return res.json({ item: doc });
+    res.json({ item: doc });
   } catch (e) {
     console.error("getElderlyMonthlyReportById error:", e);
-    return res.status(500).json({ message: "Server error." });
+    res.status(500).json({ message: "Server error." });
   }
 };
 
 /**
- * DASHBOARD DATA
- * Used by client dashboard
+ * GET /elderly-reports/dashboard
+ * Dashboard summary for client
  */
 export const getDashboardData = async (
-  req: Request,
+  _req: Request,
   res: Response
-): Promise<Response> => {
+): Promise<void> => {
   try {
     const totalReports = await ElderlyMonthlyReport.countDocuments();
 
     const byKabupaten = await ElderlyMonthlyReport.aggregate([
-      {
-        $group: {
-          _id: "$kabupaten",
-          count: { $sum: 1 },
-        },
-      },
+      { $group: { _id: "$kabupaten", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
 
     const byPuskesmas = await ElderlyMonthlyReport.aggregate([
-      {
-        $group: {
-          _id: "$puskesmas",
-          count: { $sum: 1 },
-        },
-      },
+      { $group: { _id: "$puskesmas", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
 
     const byMonth = await ElderlyMonthlyReport.aggregate([
-      {
-        $group: {
-          _id: "$bulanTahun",
-          count: { $sum: 1 },
-        },
-      },
+      { $group: { _id: "$bulanTahun", count: { $sum: 1 } } },
       { $sort: { _id: 1 } },
     ]);
 
-    return res.json({
+    res.json({
       totalReports,
       byKabupaten,
       byPuskesmas,
       byMonth,
     });
   } catch (e) {
-    console.error("dashboard error:", e);
-    return res.status(500).json({
-      message: "Server error loading dashboard.",
-    });
+    console.error("getDashboardData error:", e);
+    res.status(500).json({ message: "Server error loading dashboard." });
   }
 };
