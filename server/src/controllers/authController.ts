@@ -36,12 +36,20 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       profilePicture: uploadedPicture,
     });
 
-    // Include userId and role in JWT payload so middleware can extract both
     const token = jwt.sign(
       { userId: user._id, role: user.role },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    const isProd = process.env.NODE_ENV === "production";
+    res.cookie("token", token, {
+      httpOnly: true,
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
     res.status(201).json({
       message: "User created successfully",
@@ -76,19 +84,30 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Update last login info
     const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || "unknown";
     await User.findByIdAndUpdate(user._id, {
       lastLoginAt: new Date(),
       lastLoginIP: clientIP
     });
 
-    // Include userId and role in JWT payload
     const token = jwt.sign(
       { userId: user._id, role: user.role },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // Remember-me option: client may pass `remember: true` to prolong cookie
+    const remember = Boolean(req.body?.remember);
+    const isProd = process.env.NODE_ENV === "production";
+    const maxAge = remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
+      maxAge,
+      path: "/",
+    });
 
     res.status(200).json({
       token,
@@ -105,6 +124,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err });
+  }
+};
+
+export const logout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const isProd = process.env.NODE_ENV === "production";
+    res.clearCookie("token", { httpOnly: true, sameSite: isProd ? "none" : "lax", secure: isProd, path: "/" });
+    res.status(200).json({ message: "Logged out" });
+  } catch (err) {
+    res.status(500).json({ message: "Logout failed", error: err });
   }
 };
 

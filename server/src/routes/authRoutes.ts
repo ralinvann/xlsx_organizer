@@ -1,5 +1,5 @@
 import express from "express";
-import { signup, login, getCurrentUser } from "../controllers/authController";
+import { signup, login, getCurrentUser, logout } from "../controllers/authController";
 import { requireAuth, requireRole } from "../middleware/auth";
 
 const router = express.Router();
@@ -12,5 +12,8 @@ router.post("/login", login);
 
 // Get current user (requires valid token)
 router.get("/me", requireAuth, getCurrentUser);
+
+// Logout (clears cookie)
+router.post("/logout", logout);
 
 export default router;

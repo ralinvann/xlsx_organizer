@@ -10,6 +10,13 @@ export interface IUser extends Document {
   profilePicture?: string;
   lastLoginAt?: Date;
   lastLoginIP?: string;
+  refreshTokens?: Array<{
+    tokenHash: string;
+    createdAt: Date;
+    expiresAt: Date;
+    userAgent?: string;
+    ip?: string;
+  }>;
   createdAt: Date;
 }
 
@@ -27,6 +34,15 @@ const userSchema = new Schema<IUser>({
   profilePicture: { type: String, default: "" },
   lastLoginAt: { type: Date },
   lastLoginIP: { type: String },
+  refreshTokens: [
+    {
+      tokenHash: { type: String },
+      createdAt: { type: Date },
+      expiresAt: { type: Date },
+      userAgent: { type: String },
+      ip: { type: String },
+    },
+  ],
   createdAt: { type: Date, default: Date.now },
 });
 

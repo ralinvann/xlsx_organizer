@@ -2,15 +2,9 @@ import bcrypt from "bcrypt";
 
 const ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "10", 10);
 
-/**
- * Hash a plain text password
- */
-export const hashPassword = async (plain: string): Promise<string> =>
-  bcrypt.hash(plain, ROUNDS);
+export const hashPassword = async (password: string): Promise<string> =>
+  bcrypt.hash(password, ROUNDS);
 
-/**
- * Compare plain password with hashed password
- */
 export const comparePassword = async (
   plain: string,
   hash: string

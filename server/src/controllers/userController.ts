@@ -16,7 +16,6 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const lastName = String(req.body.lastName ?? "").trim();
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
-    // ignore incoming role for safety
     const role = "officer";
 
     if (!firstName || !lastName || !email || !password) {
@@ -74,10 +73,6 @@ export const register = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-/**
- * @route POST /api/users/login
- * @desc Authenticate user and return JWT
- */
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const email = String(req.body.email ?? "").trim().toLowerCase();
@@ -123,10 +118,6 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-/**
- * @route GET /api/users/me
- * @desc Get current user profile
- */
 export const me = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).user?.id;
@@ -150,10 +141,6 @@ export const me = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-/**
- * @route PUT /api/users/me
- * @desc Update current user profile
- */
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).user?.id;
@@ -191,10 +178,6 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-/**
- * @route PUT /api/users/me/password
- * @desc Update password for authenticated user
- */
 export const updatePassword = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).user?.id;
@@ -240,10 +223,6 @@ export const updatePassword = async (req: Request, res: Response): Promise<void>
   }
 };
 
-/**
- * @route POST /api/users/me/avatar
- * @desc Upload or update profile picture to Cloudinary
- */
 export const uploadAvatar = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).user?.id;
@@ -279,10 +258,6 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-/**
- * @route GET /api/users
- * @desc Get list of all users (admin/superadmin only)
- */
 export const listUsers = async (_req: Request, res: Response): Promise<void> => {
   try {
     const users = await User.find()
@@ -355,10 +330,6 @@ export const updateUserByAdmin = async (req: Request, res: Response): Promise<vo
   }
 };
 
-/**
- * @route DELETE /api/users/:id
- * @desc Delete user (superadmin only)
- */
 export const deleteUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const deleted = await User.findByIdAndDelete(req.params.id);

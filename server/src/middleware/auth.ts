@@ -6,7 +6,6 @@ export interface AuthUser {
   role: "superadmin" | "admin" | "officer";
 }
 
-// Proper global augmentation for req.user
 declare global {
   namespace Express {
     interface Request {
@@ -15,9 +14,6 @@ declare global {
   }
 }
 
-/**
- * Middleware: Verify JWT token and attach user payload to req.user
- */
 export const requireAuth = async (
   req: Request,
   res: Response,
@@ -25,29 +21,35 @@ export const requireAuth = async (
 ): Promise<void> => {
   const header = req.headers.authorization;
 
-  if (!header || !header.startsWith("Bearer ")) {
+  let token: string | undefined;
+  if (header && header.startsWith("Bearer ")) {
+    token = header.split(" ")[1];
+  } else if ((req as any).cookies && (req as any).cookies.token) {
+    token = (req as any).cookies.token;
+  }
+
+  if (!token) {
     res.status(401).json({ message: "No token provided" });
     return;
   }
 
   try {
-    const token = header.split(" ")[1];
-    // JWT payload must include userId and role
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;
-      role: string;
-    };
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    const userId = payload.userId || payload.id;
+    const role = payload.role;
 
-    req.user = { id: payload.userId, role: payload.role as AuthUser["role"] };
+    if (!userId) {
+      res.status(401).json({ message: "Invalid token payload" });
+      return;
+    }
+
+    req.user = { id: userId, role: role as AuthUser["role"] };
     next();
   } catch (err) {
     res.status(401).json({ message: "Invalid or expired token" });
   }
 };
 
-/**
- * Middleware: Restrict access based on user roles
- */
 export const requireRole =
   (...roles: AuthUser["role"][]) =>
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {

@@ -6,13 +6,34 @@ import { UploadPage } from "./components/UploadPage";
 import { PreviewEditPage } from "./components/PreviewEditPage";
 import { UserProfile } from "./components/UserProfile";
 import { AdminPage } from "./components/AdminPage";
-
-type UserStatus = "guest" | "authenticated";
+import { useAuth } from "./hooks/useAuth";
 
 export default function App() {
-  const [userStatus, setUserStatus] = useState<UserStatus>("guest");
+  const { user, isAuthed, ready, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [previewData, setPreviewData] = useState<any>(null);
+
+  const [justLoggedIn, setJustLoggedIn] = useState(false);
+
+  useEffect(() => {
+    if (isAuthed) {
+      setJustLoggedIn(false);
+    }
+  }, [isAuthed]);
+
+  useEffect(() => {
+    if (!ready || loading) return;
+
+    const protectedPages = ["upload", "preview", "account", "users"];
+    if (
+      !isAuthed &&
+      !justLoggedIn &&
+      currentPage !== "login" &&
+      protectedPages.includes(currentPage)
+    ) {
+      setCurrentPage("login");
+    }
+  }, [ready, loading, isAuthed, justLoggedIn, currentPage]);
 
   useEffect(() => {
     const handler = () => {
@@ -21,7 +42,6 @@ export default function App() {
         if (!raw) return;
         const parsed = JSON.parse(raw);
 
-        // IMPORTANT: keep the full payload, not just rows
         setPreviewData(parsed);
         setCurrentPage("preview");
       } catch (e) {
@@ -33,26 +53,46 @@ export default function App() {
     return () => window.removeEventListener("preview-ready", handler);
   }, []);
 
+  const handlePageChange = (page: string) => {
+    const protectedPages = ["upload", "preview", "account", "users"];
+    if (protectedPages.includes(page) && !(isAuthed || justLoggedIn)) {
+      setCurrentPage("login");
+    } else {
+      setCurrentPage(page);
+    }
+  };
+
   const renderCurrentPage = () => {
+    if (!ready || loading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-4 text-lg">Loading...</p>
+          </div>
+        </div>
+      );
+    }
+
     switch (currentPage) {
       case "login":
         return (
           <LoginScreen
             onLogin={() => {
-              setUserStatus("authenticated");
+              setJustLoggedIn(true);
               setCurrentPage("dashboard");
             }}
           />
         );
 
       case "dashboard":
-        return <Dashboard userStatus={userStatus} />;
+        return (
+          <Dashboard
+            userStatus={isAuthed || justLoggedIn ? "authenticated" : "guest"}
+          />
+        );
 
       case "upload":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return (
           <UploadPage
             onNavigate={(page, state) => {
@@ -67,10 +107,6 @@ export default function App() {
         );
 
       case "preview":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return (
           <PreviewEditPage
             initialData={previewData}
@@ -80,17 +116,9 @@ export default function App() {
         );
 
       case "account":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return <UserProfile />;
 
       case "users":
-        if (userStatus === "guest") {
-          setCurrentPage("login");
-          return <Dashboard userStatus={userStatus} />;
-        }
         return <AdminPage />;
 
       case "help":
@@ -125,7 +153,11 @@ export default function App() {
         );
 
       default:
-        return <Dashboard userStatus={userStatus} />;
+        return (
+          <Dashboard
+            userStatus={isAuthed || justLoggedIn ? "authenticated" : "guest"}
+          />
+        );
     }
   };
 
@@ -134,8 +166,8 @@ export default function App() {
       {currentPage !== "login" && (
         <Navigation
           currentPage={currentPage}
-          onPageChange={setCurrentPage}
-          userStatus={userStatus}
+          onPageChange={handlePageChange}
+          isAuthed={isAuthed || justLoggedIn}
           onShowLogin={() => setCurrentPage("login")}
         />
       )}

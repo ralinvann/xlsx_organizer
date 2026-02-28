@@ -1,4 +1,3 @@
-// src/hooks/useAuth.ts
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 
@@ -18,13 +17,6 @@ export interface IUser {
   lastUserAgent?: string;
 }
 
-/** Helper: accept either { user: IUser } or IUser */
-function extractUser(payload: any): IUser | null {
-  if (!payload) return null;
-  if (payload.user) return payload.user as IUser;
-  return payload as IUser;
-}
-
 export function useAuth() {
   const [user, setUser] = useState<IUser | null>(() => {
     const cached = localStorage.getItem("user");
@@ -36,10 +28,9 @@ export function useAuth() {
 
   const isAuthed = useMemo(() => Boolean(user), [user]);
 
-  const persist = useCallback((u: IUser | null, token?: string) => {
+  const persist = useCallback((u: IUser | null) => {
     if (u) {
       localStorage.setItem("user", JSON.stringify(u));
-      if (token) localStorage.setItem("token", token);
     } else {
       localStorage.removeItem("user");
       localStorage.removeItem("token");
@@ -48,16 +39,18 @@ export function useAuth() {
     setUser(u);
   }, []);
 
-  /**
-   * LOGIN
-   * Backend expects POST /api/auth/login and returns { user }
-   */
-  const login = useCallback(async (email: string, password: string) => {
+  function extractUser(payload: any): IUser | null {
+    if (!payload) return null;
+    if (payload.user) return payload.user as IUser;
+    return payload as IUser;
+  }
+
+  const login = useCallback(async (email: string, password: string, remember = false) => {
     setLoading(true);
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/login", { email, password, remember });
       const nextUser = extractUser(data);
-      persist(nextUser, data.token);
+      persist(nextUser);
       setReady(true);
       return { ok: true };
     } catch (e: any) {
@@ -68,23 +61,17 @@ export function useAuth() {
     }
   }, [persist]);
 
-  /**
-   * fetchMe: restore session on page refresh
-   * GET /api/auth/me -> { user }
-   */
   const fetchMe = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await api.get("/auth/me");
       const nextUser = extractUser(data);
       if (!nextUser) {
-        // backend weirdness -> clear session
         persist(null);
       } else {
         persist(nextUser);
       }
     } catch {
-      // invalid token or network error -> clear session
       persist(null);
     } finally {
       setLoading(false);
@@ -92,9 +79,6 @@ export function useAuth() {
     }
   }, [persist]);
 
-  /**
-   * updateProfile: PATCH/PUT /api/users/me -> may return { user } or user
-   */
   const updateProfile = useCallback(async (payload: Partial<Pick<IUser, "firstName" | "middleName" | "lastName">>) => {
     setLoading(true);
     try {
@@ -133,19 +117,16 @@ export function useAuth() {
     try {
       await api.post("/auth/logout");
     } catch (error) {
-      // Even if the logout request fails, we should clear local state
       console.warn("Logout request failed:", error);
     } finally {
       persist(null);
       setReady(true);
-      // optional: notify other tabs
       window.dispatchEvent(new Event("auth-logout"));
     }
   }, [persist]);
 
-  // Single restore flow
   useEffect(() => {
-    void fetchMe();
+    fetchMe();
   }, [fetchMe]);
 
   return { user, isAuthed, loading, ready, login, fetchMe, updateProfile, uploadAvatar, logout };

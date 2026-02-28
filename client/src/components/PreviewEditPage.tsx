@@ -1,4 +1,3 @@
-// PreviewEditPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -34,7 +33,6 @@ type UploadPayload = {
   };
 };
 
-// New type for multiple worksheets
 type WorksheetData = UploadPayload & {
   worksheetName: string;
 };
@@ -51,6 +49,60 @@ type PreviewEditPageProps = {
   onCancel?: () => void;
 };
 
+function excelSerialToDate(serial: number): Date {
+  const excelEpoch = new Date(1899, 11, 30); // December 30, 1899
+  const date = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
+  return date;
+}
+
+function dateToExcelSerial(date: Date): number {
+  const excelEpoch = new Date(1899, 11, 30); // December 30, 1899
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((date.getTime() - excelEpoch.getTime()) / millisecondsPerDay);
+}
+
+function formatDateDDMMYYYY(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function parseDateDDMMYYYY(dateStr: string): Date | null {
+  const parts = dateStr.split("/");
+  if (parts.length !== 3) return null;
+  
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
+  
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  
+  const date = new Date(year, month - 1, day);
+  if (date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  
+  return date;
+}
+
+function isDateField(key: string): boolean {
+  const lower = key.toLowerCase();
+  return lower.includes("tanggal") || lower.includes("tgl") || lower.includes("date");
+}
+
+// Helper: Format gender field display
+function formatGenderDisplay(value: any): string {
+  if (!value) return "-";
+  const str = String(value).trim().toLowerCase();
+  const hasL = str.includes("l");
+  const hasP = str.includes("p");
+  
+  if (hasL && !hasP) return "Male (Laki-laki)";
+  if (hasP && !hasL) return "Female (Perempuan)";
+  if (hasL && hasP) return "Ambiguous (contains both l & p)";
+  return "Invalid";
+}
+
 // Helper: Remove consecutive completely empty columns from the right edge
 function removeTrailingEmptyColumns(payload: UploadPayload): UploadPayload {
   if (!payload.rows || payload.rows.length === 0) {
@@ -62,7 +114,6 @@ function removeTrailingEmptyColumns(payload: UploadPayload): UploadPayload {
     return payload;
   }
 
-  // Find the last non-empty column index
   let lastNonEmptyColIndex = -1;
 
   for (let colIdx = headerKeys.length - 1; colIdx >= 0; colIdx--) {
@@ -78,12 +129,10 @@ function removeTrailingEmptyColumns(payload: UploadPayload): UploadPayload {
     }
   }
 
-  // If all columns are empty or all are kept, return original
   if (lastNonEmptyColIndex === -1 || lastNonEmptyColIndex === headerKeys.length - 1) {
     return payload;
   }
 
-  // Remove trailing empty columns
   const newHeaderKeys = headerKeys.slice(0, lastNonEmptyColIndex + 1);
   const newHeaderLabels = payload.headerLabels?.slice(0, lastNonEmptyColIndex + 1) ?? newHeaderKeys.map((k) => String(k).toUpperCase());
   const newHeaderOrder = newHeaderKeys;
@@ -105,7 +154,6 @@ function removeTrailingEmptyColumns(payload: UploadPayload): UploadPayload {
   };
 }
 
-// Helper: Detect if payload contains multiple worksheets
 function isMultiWorksheet(data: any): data is MultiWorksheetPayload {
   return (
     data &&
@@ -117,14 +165,12 @@ function isMultiWorksheet(data: any): data is MultiWorksheetPayload {
   );
 }
 
-// Helper: Convert multi-worksheet payload to single-worksheet format for a specific sheet
 function getWorksheetPayload(multiPayload: MultiWorksheetPayload, sheetIndex: number): UploadPayload | null {
   if (sheetIndex < 0 || sheetIndex >= multiPayload.worksheets.length) {
     return null;
   }
 
   const worksheet = multiPayload.worksheets[sheetIndex];
-  // Clean up trailing empty columns for this worksheet
   return removeTrailingEmptyColumns(worksheet);
 }
 
@@ -253,14 +299,24 @@ export function PreviewEditPage({
   const headerKeys = payload?.headerOrder ?? payload?.headerKeys ?? [];
   const headerLabels = payload?.headerLabels ?? headerKeys.map((k) => String(k).toUpperCase());
 
-  // Helper to check if a row has validation errors
   const getRowValidationStatus = (row: any): "error" | "valid" => {
     const hasName = row.nama !== undefined ? Boolean(String(row.nama).trim()) : true;
     const hasNik = row.nik !== undefined ? Boolean(String(row.nik).trim()) : true;
     const hasAge =
       row.umur !== undefined ? !(row.umur === null || row.umur === "" || Number.isNaN(Number(row.umur))) : true;
+    
+    // Check for gender/jk field
+    let hasGender = true;
+    for (const key of Object.keys(row)) {
+      const lower = key.toLowerCase();
+      if ((lower === "jk" || lower.includes("jenis") && lower.includes("kelamin")) && 
+          (row[key] === null || row[key] === undefined || !String(row[key]).trim())) {
+        hasGender = false;
+        break;
+      }
+    }
 
-    if (!(hasName && hasNik && hasAge)) {
+    if (!(hasName && hasNik && hasAge && hasGender)) {
       return "error";
     }
 
@@ -276,14 +332,86 @@ export function PreviewEditPage({
     if ((lowerKey === "nama" || lowerKey.includes("nama")) && (!cellValue || !String(cellValue).trim())) {
       return "Nama wajib diisi";
     }
-    // Check for nik (exact match or contains)
-    if ((lowerKey === "nik" || lowerKey.includes("nik")) && (!cellValue || !String(cellValue).trim())) {
-      return "NIK wajib diisi";
+    
+    // Check for nik (CRITICAL - must not be empty, must be integer, must be unique)
+    if ((lowerKey === "nik" || lowerKey.includes("nik"))) {
+      // Check if empty
+      if (!cellValue || !String(cellValue).trim()) {
+        return "❌ NIK wajib diisi (CRITICAL)";
+      }
+      
+      // Check if it's a valid integer
+      const nikStr = String(cellValue).trim();
+      const nikNum = Number(nikStr);
+      
+      if (Number.isNaN(nikNum) || !Number.isInteger(nikNum) || nikNum <= 0) {
+        return "❌ NIK harus berupa angka bulat positif (INTEGER)";
+      }
+      
+      // Check for uniqueness within this upload batch
+      // Use the edited values if they exist, otherwise use original
+      const nikCount = rows?.filter((r) => {
+        const rnik = editedRows[String(r.id)]?.[key] ?? r[key];
+        return rnik && Number(rnik) === nikNum;
+      }).length ?? 0;
+      
+      if (nikCount > 1) {
+        return `❌ NIK duplikat (ada ${nikCount} data dengan NIK yang sama)`;
+      }
     }
-    // Check for umur (exact match or contains)
+    
+    // Check for umur (age - REQUIRED and must be an integer >= 0)
     if ((lowerKey === "umur" || lowerKey.includes("umur"))) {
-      if (cellValue === null || cellValue === "" || Number.isNaN(Number(cellValue))) {
-        return "Umur wajib diisi";
+      if (cellValue === null || cellValue === "") {
+        return "❌ Umur wajib diisi (REQUIRED)";
+      }
+      const numValue = Number(cellValue);
+      if (Number.isNaN(numValue) || !Number.isInteger(numValue)) {
+        return "❌ Umur harus berupa angka bulat (integer)";
+      }
+      if (numValue < 0 || numValue > 150) {
+        return "❌ Umur tidak valid (harus 0-150)";
+      }
+    }
+    
+    // Check for gender/jk (exact match or contains)
+    if ((lowerKey === "jk" || (lowerKey.includes("jenis") && lowerKey.includes("kelamin")))) {
+      if (!cellValue || !String(cellValue).trim()) {
+        return "❌ Jenis Kelamin wajib diisi (required)";
+      }
+      
+      const genderStr = String(cellValue).trim().toLowerCase();
+      const hasL = genderStr.includes("l");
+      const hasP = genderStr.includes("p");
+      
+      // Validate gender: must contain 'l' (male) or 'p' (female)
+      if (!hasL && !hasP) {
+        return `❌ Jenis Kelamin tidak valid - harus 'l' (Laki-laki) atau 'p' (Perempuan). Ditemukan: "${genderStr}"`;
+      }
+    }
+    
+    // Check for date fields (must be valid date format)
+    if (isDateField(key)) {
+      if (cellValue === null || cellValue === "") {
+        return null; // Date is optional
+      }
+      
+      // If it's a string, try to parse as DD/MM/YYYY
+      if (typeof cellValue === "string") {
+        const dateStr = cellValue.trim();
+        const parsed = parseDateDDMMYYYY(dateStr);
+        if (!parsed) {
+          return "❌ Format tanggal tidak valid. Gunakan format DD/MM/YYYY";
+        }
+      } else {
+        // If it's a number, check if it's a valid integer (Excel serial)
+        const numValue = Number(cellValue);
+        if (Number.isNaN(numValue) || !Number.isInteger(numValue)) {
+          return "❌ Format tanggal tidak valid";
+        }
+        if (numValue < 0 || numValue > 100000) {
+          return "❌ Tanggal tidak valid";
+        }
       }
     }
 
@@ -298,7 +426,11 @@ export function PreviewEditPage({
     let errorCount = 0;
 
     rows.forEach((r) => {
-      const status = getRowValidationStatus(r);
+      // Apply edited values to row for validation
+      const edits = editedRows[String(r.id)];
+      const rowToValidate = edits ? { ...r, ...edits } : r;
+      
+      const status = getRowValidationStatus(rowToValidate);
       if (status === "error") {
         errorCount += 1;
       } else {
@@ -307,7 +439,7 @@ export function PreviewEditPage({
     });
 
     return { total, valid, warning: 0, error: errorCount };
-  }, [rows]);
+  }, [rows, editedRows]);
 
   const handleToggleEditMode = () => {
     if (isEditing) {
@@ -330,11 +462,31 @@ export function PreviewEditPage({
   const handleSaveAllChanges = () => {
     if (!payload) return;
 
-    // Apply all edits to rows
+    // Apply all edits to rows, converting dates to Excel serial numbers
     const newRows = payload.rows.map((row) => {
       const edits = editedRows[String(row.id)];
       if (edits) {
-        return { ...row, ...edits };
+        const updatedRow: Record<string, any> = { ...row };
+        
+        // Process each edited field
+        Object.entries(edits).forEach(([key, value]) => {
+          if (isDateField(key) && value !== null && value !== "") {
+            // Try to parse as DD/MM/YYYY format
+            const dateStr = String(value).trim();
+            const parsed = parseDateDDMMYYYY(dateStr);
+            if (parsed) {
+              // Convert to Excel serial number for storage
+              updatedRow[key] = dateToExcelSerial(parsed);
+            } else {
+              // If it doesn't parse, keep it as-is (will fail validation)
+              updatedRow[key] = value;
+            }
+          } else {
+            updatedRow[key] = value;
+          }
+        });
+        
+        return updatedRow;
       }
       return row;
     });
@@ -412,23 +564,56 @@ export function PreviewEditPage({
     setErrorMsg(null);
 
     try {
-      const body = {
-        kabupaten: payload?.kabupaten ?? "",
-        puskesmas: payload?.puskesmas ?? "",
-        bulanTahun: payload?.bulanTahun ?? "",
-        metaPairs: payload?.metaPairs ?? [],
-        headerKeys: payload?.headerKeys ?? payload?.headerOrder ?? [],
-        headerLabels: payload?.headerLabels ?? [],
-        headerOrder: payload?.headerOrder ?? payload?.headerKeys ?? [],
-        rowData: rows,
-        fileName: payload?.fileName,
-        sourceSheetName: payload?.sourceSheetName,
-      };
+      let body: any;
+
+      if (multiWorksheetPayload && multiWorksheetPayload.worksheets.length > 1) {
+        // Send all worksheets with month/year information
+        body = {
+          fileName: multiWorksheetPayload.fileName,
+          kabupaten: multiWorksheetPayload.worksheets[0]?.kabupaten ?? "",
+          bulanTahun: multiWorksheetPayload.worksheets[0]?.bulanTahun ?? "",
+          worksheets: multiWorksheetPayload.worksheets.map((ws) => ({
+            worksheetName: ws.worksheetName,
+            puskesmas: ws.puskesmas ?? "",
+            kabupaten: ws.kabupaten ?? "",
+            bulanTahun: ws.bulanTahun ?? "",
+            metaPairs: ws.metaPairs ?? [],
+            headerKeys: ws.headerKeys ?? ws.headerOrder ?? [],
+            headerLabels: ws.headerLabels ?? [],
+            headerOrder: ws.headerOrder ?? ws.headerKeys ?? [],
+            rowData: ws.rows,
+            sourceSheetName: ws.sourceSheetName,
+            headerBlock: ws.headerBlock,
+          })),
+        };
+      } else {
+        // Send single worksheet
+        body = {
+          fileName: payload?.fileName,
+          kabupaten: payload?.kabupaten ?? "",
+          bulanTahun: payload?.bulanTahun ?? "",
+          worksheets: [
+            {
+              worksheetName: payload?.sourceSheetName ?? "Sheet1",
+              puskesmas: payload?.puskesmas ?? "",
+              kabupaten: payload?.kabupaten ?? "",
+              bulanTahun: payload?.bulanTahun ?? "",
+              metaPairs: payload?.metaPairs ?? [],
+              headerKeys: payload?.headerKeys ?? payload?.headerOrder ?? [],
+              headerLabels: payload?.headerLabels ?? [],
+              headerOrder: payload?.headerOrder ?? payload?.headerKeys ?? [],
+              rowData: rows,
+              sourceSheetName: payload?.sourceSheetName,
+              headerBlock: payload?.headerBlock,
+            },
+          ],
+        };
+      }
 
       const { data } = await api.post("/elderly-reports", body); // IMPORTANT: no "/api" here
-      if (!data?.reportId) throw new Error("Response tidak valid dari server.");
+      if (!data?.reportId && !data?.success) throw new Error("Response tidak valid dari server.");
 
-      setSuccessMsg("Data berhasil diimpor ke database.");
+      setSuccessMsg("Data berhasil diimpor ke database dan laporan bulanan telah dibuat.");
       sessionStorage.removeItem("previewData");
       if (typeof onDone === "function") onDone();
     } catch (e: any) {
@@ -574,12 +759,14 @@ export function PreviewEditPage({
           </div>
 
           {/* Legend explaining colors */}
-          <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex gap-3">
               <div className="w-12 h-12 bg-red-50 border-l-4 border-red-500 rounded flex-shrink-0"></div>
               <div>
                 <div className="font-semibold text-red-700">❌ Error (Merah)</div>
-                <div className="text-sm text-muted-foreground">Kolom wajib kosong: Nama, NIK, atau Umur</div>
+                <div className="text-sm text-muted-foreground">
+                  <strong className="text-red-600">CRITICAL fields:</strong> NIK (INTEGER, UNIQUE, required), Umur (required), Jenis Kelamin (l/p)
+                </div>
               </div>
             </div>
             <div className="flex gap-3">
@@ -589,6 +776,16 @@ export function PreviewEditPage({
                 <div className="text-sm text-muted-foreground">Data lengkap dan siap untuk disimpan</div>
               </div>
             </div>
+          </div>
+          
+          {/* Field Requirements */}
+          <div className="border-t pt-4 mt-4">
+            <div className="font-semibold text-sm mb-2">Required Field Validation Rules:</div>
+            <ul className="text-sm text-muted-foreground space-y-1">
+              <li><strong>NIK:</strong> ❌ Must be INTEGER, UNIQUE within bulk, and NOT EMPTY (CRITICAL)</li>
+              <li><strong>Umur (Age):</strong> ❌ Must be filled with valid age (0-150 years) (REQUIRED)</li>
+              <li><strong>Jenis Kelamin (Gender):</strong> ❌ Must contain 'l' (Laki-laki/Male) or 'p' (Perempuan/Female)</li>
+            </ul>
           </div>
         </CardContent>
       </Card>
@@ -699,10 +896,34 @@ export function PreviewEditPage({
                     <TableRow key={String(row.id)} className={rowBgClass}>
                       {headerKeys.map((k) => {
                         const cellValue = row[k];
-                        const cellError = getCellError(row, k);
+                        
+                        // Apply edits for validation
+                        const editedValue = editedRows[String(row.id)]?.[k];
+                        const valueToValidate = editedValue !== undefined ? editedValue : cellValue;
+                        
+                        const cellError = getCellError({ ...row, [k]: valueToValidate }, k);
                         const isCellError = cellError !== null;
+                        const isDateCol = isDateField(k);
+                        const isGenderCol = k.toLowerCase() === "jk" || (k.toLowerCase().includes("jenis") && k.toLowerCase().includes("kelamin"));
+                        
                         // Get edited value if it exists, otherwise use original
-                        const displayValue = editedRows[String(row.id)]?.[k] ?? cellValue;
+                        let displayValue = editedValue ?? cellValue;
+                        
+                        // Format gender for display if it's a gender field
+                        let displayText = displayValue;
+                        if (isGenderCol) {
+                          displayText = formatGenderDisplay(displayValue);
+                        } else if (!isEditing && isDateCol && displayValue !== null && displayValue !== "" && !isNaN(displayValue)) {
+                          const numVal = Number(displayValue);
+                          if (Number.isInteger(numVal) && numVal > 0) {
+                            try {
+                              const date = excelSerialToDate(numVal);
+                              displayText = formatDateDDMMYYYY(date);
+                            } catch (e) {
+                              displayText = String(displayValue);
+                            }
+                          }
+                        }
 
                         return (
                           <TableCell 
@@ -715,11 +936,51 @@ export function PreviewEditPage({
                                 const lower = k.toLowerCase();
                                 const isNumberish = lower.includes("umur") || typeof cellValue === "number";
 
+                                if (isDateCol) {
+                                  // For date fields, show in DD/MM/YYYY format when editing
+                                  let inputValue = "";
+                                  const edited = editedRows[String(row.id)]?.[k];
+                                  if (edited !== undefined) {
+                                    // If it's been edited, use the edited value as-is
+                                    inputValue = String(edited);
+                                  } else if (cellValue !== null && cellValue !== "") {
+                                    // Check if it's a valid integer (Excel serial)
+                                    if (!isNaN(cellValue) && Number.isInteger(Number(cellValue))) {
+                                      const numVal = Number(cellValue);
+                                      if (numVal > 0) {
+                                        try {
+                                          const date = excelSerialToDate(numVal);
+                                          inputValue = formatDateDDMMYYYY(date);
+                                        } catch (e) {
+                                          inputValue = String(cellValue);
+                                        }
+                                      }
+                                    } else {
+                                      // It's a string (possibly invalid date format) - show it so user can fix it
+                                      inputValue = String(cellValue);
+                                    }
+                                  }
+                                  
+                                  return (
+                                    <input
+                                      type="text"
+                                      placeholder="DD/MM/YYYY"
+                                      className={`w-full border-2 rounded px-2 py-1 ${isCellError ? "border-red-500 bg-red-100" : "border-blue-400 border-dashed"} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                      value={inputValue}
+                                      onChange={(e) => {
+                                        const inputStr = e.target.value;
+                                        // Store as-is; validation happens after save
+                                        handleCellChange(row.id, k, inputStr);
+                                      }}
+                                    />
+                                  );
+                                }
+
                                 if (isNumberish) {
                                   return (
                                     <input
                                       type="number"
-                                      className={`w-full border-2 rounded px-2 py-1 ${isCellError ? "border-red-500 bg-red-50" : "border-blue-400 border-dashed"}`}
+                                      className={`w-full border-2 rounded px-2 py-1 ${isCellError ? "border-red-500 bg-red-100" : "border-blue-400 border-dashed"} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                                       value={String(displayValue ?? "")}
                                       onChange={(e) =>
                                         handleCellChange(row.id, k, e.target.value ? Number(e.target.value) : null)
@@ -730,7 +991,7 @@ export function PreviewEditPage({
 
                                 return (
                                   <input
-                                    className={`w-full border-2 rounded px-2 py-1 ${isCellError ? "border-red-500 bg-red-50" : "border-blue-400 border-dashed"}`}
+                                    className={`w-full border-2 rounded px-2 py-1 ${isCellError ? "border-red-500 bg-red-100" : "border-blue-400 border-dashed"} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                                     value={String(displayValue ?? "")}
                                     onChange={(e) =>
                                       handleCellChange(row.id, k, e.target.value)
@@ -741,7 +1002,7 @@ export function PreviewEditPage({
                             ) : (
                               <div className={isCellError ? "font-semibold" : ""}>
                                 <div className={isCellError ? "text-red-600" : ""}>
-                                  {String(displayValue ?? "-")}
+                                  {String(displayText ?? "-")}
                                 </div>
                                 {isCellError && (
                                   <div className="text-xs text-red-600 mt-1 font-normal italic">

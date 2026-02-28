@@ -15,6 +15,7 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
   const { login, loading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ email: "", password: "" });
+  const [rememberDevice, setRememberDevice] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
@@ -33,7 +34,7 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
       return;
     }
 
-    const res = await login(formData.email, formData.password);
+    const res = await login(formData.email, formData.password, rememberDevice);
     if (!res.ok) {
       setErrorMsg(res.message || "Login gagal.");
       return;
@@ -101,6 +102,20 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="remember"
+                  type="checkbox"
+                  checked={rememberDevice}
+                  onChange={(e) => setRememberDevice(e.target.checked)}
+                  disabled={loading}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="remember" className="text-sm text-muted-foreground">
+                  Percayai perangkat ini selama 30 hari
+                </label>
               </div>
 
               <Button

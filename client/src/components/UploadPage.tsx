@@ -33,7 +33,6 @@ type UploadPayload = {
   };
 };
 
-// Type for worksheet data
 type WorksheetData = UploadPayload & {
   worksheetName: string;
 };
@@ -71,18 +70,14 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     }
   }, []);
 
-  // listen for reset events coming from other parts of the UI (e.g. preview page cancel)
   useEffect(() => {
     const handler = (e: Event) => {
-      // use the setter that persists to sessionStorage
       setUploadStep(1);
       setFileName(null);
       setFileError(null);
       try {
         sessionStorage.removeItem("previewData");
-      } catch (err) {
-        // ignore
-      }
+      } catch (err) {}
     };
 
     window.addEventListener("upload-reset", handler as EventListener);
@@ -120,8 +115,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     if (e.type === "dragleave") setDragActive(false);
   };
 
-  // ---------------- parsing helpers ----------------
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
   function detectHeaderRow(arr: Array<any[]>, maxScanRows = 12, minNonEmptyCells = 3) {
     const rowsToCheck = Math.min(maxScanRows, arr.length);
@@ -175,12 +169,11 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     return s.startsWith("diketahui");
   }
 
-  // B2/C2, B3/C3, B4/C4 (AoA index: row 1..3, col B=1, col C=2)
   function readMetaPairsFromAoA(rawAoA: any[][]) {
     const pairsSpec = [
-      { row: 1, keyCol: 1, valCol: 2 }, // B2/C2
-      { row: 2, keyCol: 1, valCol: 2 }, // B3/C3
-      { row: 3, keyCol: 1, valCol: 2 }, // B4/C4
+      { row: 1, keyCol: 1, valCol: 2 },
+      { row: 2, keyCol: 1, valCol: 2 },
+      { row: 3, keyCol: 1, valCol: 2 },
     ];
 
     const metaPairs: MetaPair[] = [];
@@ -195,7 +188,13 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       const k = key.toLowerCase();
       if (k.includes("kabupaten")) metaMap.kabupaten = value;
       else if (k.includes("puskesmas")) metaMap.puskesmas = value;
-      else if (k.includes("bulan")) metaMap.bulanTahun = value;
+      else if (k.includes("bulan")) {
+        let cleanedValue = value
+          .replace(/^:\s*/, "") // Remove leading ": " or ":"
+          .replace(/\s*\/\s*/g, " ") // Replace "/" with spaces
+          .trim();
+        metaMap.bulanTahun = cleanedValue;
+      }
     });
 
     return { metaPairs, metaMap };
