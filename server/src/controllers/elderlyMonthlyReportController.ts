@@ -1,261 +1,176 @@
+// controllers/elderlyMonthlyReportController.ts
 import { Request, Response } from "express";
 import { ElderlyMonthlyReport } from "../models/ElderlyMonthlyReport";
-import { generateMonthlyReportExcel } from "../utils/generateMonthlyReportExcel";
-import * as fs from "fs";
-import * as path from "path";
 
 function isNonEmptyString(v: any) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
-function convertPostAlamatToBinary(worksheet: any): any {
-  if (!worksheet.headerKeys || !Array.isArray(worksheet.rowData)) {
-    return worksheet;
-  }
-
-  const alamatIndex = worksheet.headerKeys.findIndex(
-    (key: string) => key.toLowerCase() === "alamat"
-  );
-
-  if (alamatIndex === -1 || alamatIndex >= worksheet.headerKeys.length - 1) {
-    return worksheet;
-  }
-
-  const processedRows = worksheet.rowData.map((row: any) => {
-    const newRow = { ...row };
-    for (let colIdx = alamatIndex + 1; colIdx < worksheet.headerKeys.length; colIdx++) {
-      const key = worksheet.headerKeys[colIdx];
-      const value = newRow[key];
-      newRow[key] =
-        value !== null && value !== undefined && String(value).trim() !== ""
-          ? "Yes"
-          : "No";
-    }
-    return newRow;
-  });
-
-  return {
-    ...worksheet,
-    rowData: processedRows,
-  };
-}
-
+/**
+ * CREATE REPORT
+ */
 export const createElderlyMonthlyReport = async (
   req: Request,
   res: Response
-): Promise<void> => {
+): Promise<Response> => {
   try {
     const {
-      fileName,
       kabupaten,
-      bulanTahun,
-      worksheets,
-      // Legacy single-worksheet fields (for backward compatibility)
       puskesmas,
+      bulanTahun,
       metaPairs,
       headerKeys,
       headerLabels,
       headerOrder,
       rowData,
+      fileName,
       sourceSheetName,
     } = req.body ?? {};
 
-    if (!isNonEmptyString(kabupaten) || !isNonEmptyString(bulanTahun)) {
-      res
-        .status(400)
-        .json({ message: "kabupaten and bulanTahun are required." });
-      return;
-    }
-
-    let worksheetsData: any[];
-
-    if (Array.isArray(worksheets) && worksheets.length > 0) {
-      worksheetsData = worksheets.map((ws) => convertPostAlamatToBinary(ws));
-
-      for (const ws of worksheetsData) {
-        if (
-          !Array.isArray(ws.headerKeys) ||
-          ws.headerKeys.length === 0
-        ) {
-          res.status(400).json({
-            message: `Worksheet "${ws.worksheetName}" must have headerKeys.`,
-          });
-          return;
-        }
-        if (!Array.isArray(ws.rowData) || ws.rowData.length === 0) {
-          res.status(400).json({
-            message: `Worksheet "${ws.worksheetName}" has no data.`,
-          });
-          return;
-        }
-      }
-    } else if (
-      puskesmas &&
-      Array.isArray(headerKeys) &&
-      headerKeys.length > 0 &&
-      Array.isArray(rowData) &&
-      rowData.length > 0
+    if (
+      !isNonEmptyString(kabupaten) ||
+      !isNonEmptyString(puskesmas) ||
+      !isNonEmptyString(bulanTahun)
     ) {
-      // Legacy single-worksheet payload
-      const singleWs = {
-        worksheetName: sourceSheetName || "Sheet1",
-        puskesmas: puskesmas.trim(),
-        kabupaten: kabupaten.trim(),
-        bulanTahun: bulanTahun.trim(),
-        metaPairs: Array.isArray(metaPairs) ? metaPairs : [],
-        headerKeys,
-        headerLabels: Array.isArray(headerLabels)
-          ? headerLabels
-          : headerKeys.map((k: string) => String(k).toUpperCase()),
-        headerOrder: Array.isArray(headerOrder) ? headerOrder : headerKeys,
-        rowData,
-        sourceSheetName,
-      };
-      worksheetsData = [convertPostAlamatToBinary(singleWs)];
-    } else {
-      res.status(400).json({
-        message:
-          "Either worksheets array or legacy single-worksheet fields (puskesmas, headerKeys, rowData) must be provided.",
-      });
-      return;
+      return res
+        .status(400)
+        .json({ message: "kabupaten, puskesmas, bulanTahun wajib." });
     }
 
-    let generatedReportPath: string | null = null;
-    try {
-      const excelBuffer = await generateMonthlyReportExcel({
-        kabupaten: kabupaten.trim(),
-        bulanTahun: bulanTahun.trim(),
-        worksheets: worksheetsData,
-      });
+    if (!Array.isArray(headerKeys) || headerKeys.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "headerKeys wajib dan tidak boleh kosong." });
+    }
 
-      const reportsDir = path.join(process.cwd(), "reports");
-      if (!fs.existsSync(reportsDir)) {
-        fs.mkdirSync(reportsDir, { recursive: true });
-      }
-
-      const timestamp = Date.now();
-      const filename = `monthly_report_${kabupaten}_${timestamp}.xlsx`;
-      const filePath = path.join(reportsDir, filename);
-
-      fs.writeFileSync(filePath, excelBuffer);
-      generatedReportPath = filePath;
-    } catch (excelError) {
-      console.warn("Failed to generate Excel report:", excelError);
+    if (!Array.isArray(rowData) || rowData.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "rowData kosong. Tidak ada data untuk disimpan." });
     }
 
     const doc = await ElderlyMonthlyReport.create({
       kabupaten: kabupaten.trim(),
+      puskesmas: puskesmas.trim(),
       bulanTahun: bulanTahun.trim(),
-      worksheets: worksheetsData,
-      puskesmas:
-        worksheetsData[0]?.puskesmas || worksheetsData[0]?.worksheetName,
-      metaPairs: worksheetsData[0]?.metaPairs ?? [],
-      headerKeys: worksheetsData[0]?.headerKeys ?? [],
-      headerLabels: worksheetsData[0]?.headerLabels ?? [],
-      headerOrder: worksheetsData[0]?.headerOrder ?? [],
-      rowData: worksheetsData[0]?.rowData ?? [],
+      metaPairs: Array.isArray(metaPairs) ? metaPairs : [],
+      headerKeys,
+      headerLabels: Array.isArray(headerLabels)
+        ? headerLabels
+        : headerKeys.map((k: string) => String(k).toUpperCase()),
+      headerOrder: Array.isArray(headerOrder) ? headerOrder : headerKeys,
+      rowData,
       fileName,
-      generatedReportPath,
-      status: "generated",
+      sourceSheetName,
+      status: "imported",
     });
 
-    res.status(201).json({
-      message: "Report created and Excel generated",
+    return res.status(201).json({
+      message: "Saved",
       reportId: doc._id,
       report: doc,
-      excelPath: generatedReportPath || null,
-      worksheetCount: worksheetsData.length,
     });
   } catch (e) {
     console.error("createElderlyMonthlyReport error:", e);
-    res.status(500).json({ message: "Server error saving report." });
+    return res.status(500).json({
+      message: "Server error saving report.",
+    });
   }
 };
 
+/**
+ * LIST REPORTS
+ */
 export const getElderlyMonthlyReports = async (
-  _req: Request,
+  req: Request,
   res: Response
-): Promise<void> => {
+): Promise<Response> => {
   try {
     const docs = await ElderlyMonthlyReport.find()
       .sort({ createdAt: -1 })
       .limit(50);
-    res.json({ items: docs });
+
+    return res.json({ items: docs });
   } catch (e) {
     console.error("getElderlyMonthlyReports error:", e);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ message: "Server error." });
   }
 };
 
+/**
+ * GET REPORT BY ID
+ */
 export const getElderlyMonthlyReportById = async (
   req: Request,
   res: Response
-): Promise<void> => {
+): Promise<Response> => {
   try {
     const { id } = req.params;
+
     const doc = await ElderlyMonthlyReport.findById(id);
+
     if (!doc) {
-      res.status(404).json({ message: "Not found." });
-      return;
+      return res.status(404).json({ message: "Not found." });
     }
-    res.json({ item: doc });
+
+    return res.json({ item: doc });
   } catch (e) {
     console.error("getElderlyMonthlyReportById error:", e);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ message: "Server error." });
   }
 };
 
-export const downloadElderlyMonthlyReport = async (
+/**
+ * DASHBOARD DATA
+ * Used by client dashboard
+ */
+export const getDashboardData = async (
   req: Request,
   res: Response
-): Promise<void> => {
+): Promise<Response> => {
   try {
-    const { id } = req.params;
+    const totalReports = await ElderlyMonthlyReport.countDocuments();
 
-    const doc = await ElderlyMonthlyReport.findById(id);
-    if (!doc) {
-      res.status(404).json({ message: "Report not found." });
-      return;
-    }
+    const byKabupaten = await ElderlyMonthlyReport.aggregate([
+      {
+        $group: {
+          _id: "$kabupaten",
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
 
-    // Always regenerate to ensure latest code is used
-    try {
-      const excelBuffer = await generateMonthlyReportExcel({
-        kabupaten: doc.kabupaten,
-        bulanTahun: doc.bulanTahun,
-        worksheets: doc.worksheets || [
-          {
-            worksheetName: doc.sourceSheetName || "Sheet1",
-            puskesmas: doc.puskesmas,
-            kabupaten: doc.kabupaten,
-            bulanTahun: doc.bulanTahun,
-            headerKeys: doc.headerKeys || [],
-            headerLabels: doc.headerLabels || [],
-            headerOrder: doc.headerOrder || [],
-            rowData: doc.rowData || [],
-          },
-        ],
-      });
+    const byPuskesmas = await ElderlyMonthlyReport.aggregate([
+      {
+        $group: {
+          _id: "$puskesmas",
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
 
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      );
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="monthly_report_${doc.kabupaten}_${doc.bulanTahun}.xlsx"`
-      );
-      res.send(excelBuffer);
-      return;
-    } catch (regenerateError) {
-      console.error("Failed to regenerate report:", regenerateError);
-      res
-        .status(500)
-        .json({ message: "Failed to generate report file." });
-      return;
-    }
+    const byMonth = await ElderlyMonthlyReport.aggregate([
+      {
+        $group: {
+          _id: "$bulanTahun",
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    return res.json({
+      totalReports,
+      byKabupaten,
+      byPuskesmas,
+      byMonth,
+    });
   } catch (e) {
-    console.error("downloadElderlyMonthlyReport error:", e);
-    res.status(500).json({ message: "Server error." });
+    console.error("dashboard error:", e);
+    return res.status(500).json({
+      message: "Server error loading dashboard.",
+    });
   }
 };
