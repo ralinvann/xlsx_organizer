@@ -9,5 +9,6 @@ const router = Router();
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/elderly-reports', elderlyMonthlyReportRoutes);
+router.use('/lwreports', elderlyMonthlyReportRoutes);
 
 export default router;

@@ -2,7 +2,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Alert, AlertDescription } from "./ui/alert";
-import { Users, Activity, AlertTriangle, TrendingUp, Calendar, MapPin, Lock, Eye, Download, RotateCw } from "lucide-react";
+import {
+  Users,
+  Activity,
+  AlertTriangle,
+  TrendingUp,
+  MapPin,
+  Lock,
+  Eye,
+  Download,
+  RotateCw,
+} from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -20,6 +30,15 @@ import {
   SelectValue,
 } from "./ui/select";
 import { api } from "../lib/api";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  AreaChart,
+  Area,
+  ResponsiveContainer,
+} from "recharts";
 
 interface DashboardProps {
   userStatus: "guest" | "authenticated";
@@ -41,6 +60,65 @@ const MONTHS = [
   { value: "DESEMBER", label: "Desember" },
 ];
 
+interface DashboardData {
+  totalPraLansia: number;
+  totalLansia: number;
+  totalLansiaRisti: number;
+  screenedLansia: number;
+  empowermentCount: number;
+  independenceLevels: {
+    A: number;
+    B: number;
+    C: number;
+  };
+  genderBreakdown: {
+    male: number;
+    female: number;
+  };
+}
+
+const defaultDashboardData: DashboardData = {
+  totalPraLansia: 0,
+  totalLansia: 0,
+  totalLansiaRisti: 0,
+  screenedLansia: 0,
+  empowermentCount: 0,
+  independenceLevels: {
+    A: 0,
+    B: 0,
+    C: 0,
+  },
+  genderBreakdown: {
+    male: 0,
+    female: 0,
+  },
+};
+
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat("id-ID").format(value);
+}
+
+function percent(part: number, total: number): string {
+  if (!total) return "0%";
+  return `${Math.round((part / total) * 100)}%`;
+}
+
+function distribute(total: number, labels: string[]): Array<{ name: string; value: number }> {
+  if (total <= 0) {
+    return labels.map((name) => ({ name, value: 0 }));
+  }
+  const base = Math.floor(total / labels.length);
+  const result = labels.map((name) => ({ name, value: base }));
+  let remainder = total - base * labels.length;
+  let index = 0;
+  while (remainder > 0) {
+    result[index].value += 1;
+    remainder -= 1;
+    index = (index + 1) % result.length;
+  }
+  return result;
+}
+
 export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
@@ -51,9 +129,68 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   const [searching, setSearching] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData>(defaultDashboardData);
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => (currentYear - i).toString());
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setLoading(true);
+      setDashboardError(null);
+      try {
+        const { data } = await api.get<DashboardData>("/lwreports/dashboard");
+        setDashboardData(data);
+      } catch {
+        try {
+          const { data } = await api.get<DashboardData>("/elderly-reports/dashboard");
+          setDashboardData(data);
+        } catch (e: any) {
+          const msg = e?.response?.data?.message || "Gagal memuat data dashboard.";
+          setDashboardError(msg);
+          setDashboardData(defaultDashboardData);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
+  const elderlyMeasuredData = distribute(dashboardData.totalLansia, [
+    "Sen",
+    "Sel",
+    "Rab",
+    "Kam",
+    "Jum",
+    "Sab",
+    "Min",
+  ]);
+
+  const interventionData = distribute(dashboardData.screenedLansia, [
+    "Minggu 1",
+    "Minggu 2",
+    "Minggu 3",
+    "Minggu 4",
+  ]);
+
+  const urgentCasesData = distribute(dashboardData.totalLansiaRisti, [
+    "Sen",
+    "Sel",
+    "Rab",
+    "Kam",
+    "Jum",
+    "Sab",
+    "Min",
+  ]);
+
+  const healthImprovementData = [
+    { name: "A", value: dashboardData.independenceLevels.A },
+    { name: "B", value: dashboardData.independenceLevels.B },
+    { name: "C", value: dashboardData.independenceLevels.C },
+  ];
 
   const handleDialogOpen = () => {
     setShowReportDialog(true);
@@ -150,42 +287,6 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
     }
   };
 
-  const stats = [
-    {
-      title: "Jumlah Lansia Diukur",
-      value: "14,500",
-      subtitle: "Total bulan ini",
-      icon: Users,
-      color: "text-blue-600",
-      bgColor: "bg-blue-50",
-    },
-    {
-      title: "Intervensi Dilakukan",
-      value: "892",
-      subtitle: "Tindakan medis",
-      icon: Activity,
-      color: "text-green-600",
-      bgColor: "bg-green-50",
-    },
-    {
-      title: "Kasus Mendesak",
-      value: userStatus === "guest" ? "***" : "23",
-      subtitle: "Perlu perhatian",
-      icon: AlertTriangle,
-      color: "text-red-600",
-      bgColor: "bg-red-50",
-      restricted: userStatus === "guest",
-    },
-    {
-      title: "Peningkatan Kesehatan",
-      value: "78%",
-      subtitle: "Dari bulan lalu",
-      icon: TrendingUp,
-      color: "text-primary",
-      bgColor: "bg-green-50",
-    },
-  ];
-
   const recentActivities = [
     {
       patient: userStatus === "guest" ? "Ibu S***" : "Ibu Siti Aminah",
@@ -231,6 +332,12 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
         </Alert>
       )}
 
+      {dashboardError && (
+        <Alert className="bg-red-50 border-red-200">
+          <AlertDescription className="text-red-700">{dashboardError}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-semibold">Dashboard Utama</h2>
@@ -258,30 +365,110 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={index} className="shadow-md hover:shadow-lg transition-shadow relative">
-              {stat.restricted && (
-                <div className="absolute top-2 right-2">
-                  <Lock className="w-4 h-4 text-muted-foreground" />
-                </div>
-              )}
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg text-muted-foreground">{stat.title}</CardTitle>
-                  <div className={`p-3 rounded-full ${stat.bgColor}`}>
-                    <Icon className={`w-6 h-6 ${stat.color}`} />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-4xl font-bold mb-2">{stat.value}</div>
-                <p className="text-lg text-muted-foreground">{stat.subtitle}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
+        <Card className="shadow-md hover:shadow-lg transition-shadow">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg text-muted-foreground">Jumlah Lansia Diukur</CardTitle>
+              <div className="p-3 rounded-full bg-secondary">
+                <Users className="w-6 h-6 text-primary" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold mb-1">
+              {loading ? "..." : compactNumber(dashboardData.totalLansia)}
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">Total lansia (&gt;= 60 tahun)</p>
+            <ResponsiveContainer width="100%" height={80}>
+              <LineChart data={elderlyMeasuredData}>
+                <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-shadow">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg text-muted-foreground">Intervensi Dilakukan</CardTitle>
+              <div className="p-3 rounded-full bg-secondary">
+                <Activity className="w-6 h-6 text-primary" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold mb-1">
+              {loading ? "..." : compactNumber(dashboardData.screenedLansia)}
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">Skrining lansia (distinct NIK)</p>
+            <ResponsiveContainer width="100%" height={80}>
+              <BarChart data={interventionData}>
+                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-shadow relative">
+          {userStatus === "guest" && (
+            <div className="absolute top-2 right-2 z-10">
+              <Lock className="w-4 h-4 text-muted-foreground" />
+            </div>
+          )}
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg text-muted-foreground">Kasus Mendesak</CardTitle>
+              <div className="p-3 rounded-full bg-secondary">
+                <AlertTriangle className="w-6 h-6 text-destructive" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold mb-1">
+              {userStatus === "guest" ? "***" : loading ? "..." : compactNumber(dashboardData.totalLansiaRisti)}
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">Lansia risiko tinggi (&gt;= 70 tahun)</p>
+            <ResponsiveContainer width="100%" height={80}>
+              <AreaChart data={urgentCasesData}>
+                <defs>
+                  <linearGradient id="urgentGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--destructive))" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="hsl(var(--destructive))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="hsl(var(--destructive))"
+                  strokeWidth={2}
+                  fill="url(#urgentGradient)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-shadow">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg text-muted-foreground">Peningkatan Kesehatan</CardTitle>
+              <div className="p-3 rounded-full bg-secondary">
+                <TrendingUp className="w-6 h-6 text-primary" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold mb-1">
+              {loading ? "..." : percent(dashboardData.independenceLevels.A, dashboardData.totalLansia)}
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">Kemandirian level A dari total lansia</p>
+            <ResponsiveContainer width="100%" height={80}>
+              <LineChart data={healthImprovementData}>
+                <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={3} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="shadow-md">
@@ -336,24 +523,24 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
 
       {/* Report Download Dialog */}
       <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader className="space-y-2">
             <DialogTitle className="text-2xl">Download Laporan Bulanan</DialogTitle>
-            <DialogDescription className="text-lg">
+            <DialogDescription className="text-base">
               Pilih bulan dan tahun laporan yang ingin diunduh
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <label className="text-sm font-semibold">Bulan</label>
+          <div className="space-y-5 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Bulan</label>
               <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                <SelectTrigger className="h-11 text-lg">
+                <SelectTrigger className="h-11">
                   <SelectValue placeholder="Pilih bulan..." />
                 </SelectTrigger>
                 <SelectContent>
                   {MONTHS.map((month) => (
-                    <SelectItem key={month.value} value={month.value} className="text-base">
+                    <SelectItem key={month.value} value={month.value}>
                       {month.label}
                     </SelectItem>
                   ))}
@@ -361,15 +548,15 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
               </Select>
             </div>
 
-            <div className="space-y-3">
-              <label className="text-sm font-semibold">Tahun</label>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tahun</label>
               <Select value={selectedYear} onValueChange={setSelectedYear}>
-                <SelectTrigger className="h-11 text-lg">
+                <SelectTrigger className="h-11">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {years.map((year) => (
-                    <SelectItem key={year} value={year} className="text-base">
+                    <SelectItem key={year} value={year}>
                       {year}
                     </SelectItem>
                   ))}
@@ -378,35 +565,37 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
             </div>
 
             {errorMsg && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
                 {errorMsg}
               </div>
             )}
 
             {reportExists === null && (
-              <div className="text-sm text-muted-foreground text-center italic">
+              <div className="p-3 bg-muted/50 border border-muted rounded-md text-sm text-muted-foreground text-center">
                 Pilih bulan dan tahun, lalu tekan "Cari Laporan"
               </div>
             )}
 
             {reportExists === true && (
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-600">
-                ✓ Laporan tersedia dan siap untuk diunduh
+              <div className="p-3 bg-green-50 border border-green-200 rounded-md text-sm text-green-700 flex items-center gap-2">
+                <span className="text-base">✓</span>
+                <span>Laporan tersedia dan siap untuk diunduh</span>
               </div>
             )}
 
             {reportExists === false && (
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-600">
-                ⚠ Laporan untuk bulan {selectedMonth} {selectedYear} belum tersedia
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-700 flex items-center gap-2">
+                <span className="text-base">⚠</span>
+                <span>Laporan untuk bulan {selectedMonth} {selectedYear} belum tersedia</span>
               </div>
             )}
           </div>
 
-          <DialogFooter className="flex gap-3 justify-end mt-6">
+          <DialogFooter className="flex-row gap-2 sm:gap-3">
             <Button
               variant="outline"
               size="lg"
-              className="h-11 px-6 text-base"
+              className="flex-1 h-11"
               onClick={() => setShowReportDialog(false)}
               disabled={searching || downloadLoading}
             >

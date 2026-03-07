@@ -4,7 +4,7 @@ import {
   createElderlyMonthlyReport,
   getElderlyMonthlyReports,
   getElderlyMonthlyReportById,
-  getDashboardData,
+  ElderlyMonthlyReportController,
 } from "../controllers/elderlyMonthlyReportController";
 
 const router = Router();
@@ -12,7 +12,7 @@ const router = Router();
 router.post("/", createElderlyMonthlyReport);
 router.get("/", getElderlyMonthlyReports);
 
-router.get("/dashboard", getDashboardData);
+router.get("/dashboard", ElderlyMonthlyReportController.getDashboardData);
 
 router.get("/:id", getElderlyMonthlyReportById);
 
