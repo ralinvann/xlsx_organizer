@@ -1,4 +1,3 @@
-// controllers/elderlyMonthlyReportController.ts
 import { Request, Response } from "express";
 import { ElderlyMonthlyReport } from "../models/ElderlyMonthlyReport";
 import { generateMonthlyReportExcel } from "../utils/generateMonthlyReportExcel";
@@ -223,10 +222,10 @@ export const createElderlyMonthlyReport = async (
             : headerKeys.map((k: string) => String(k).toUpperCase());
 
           const rowData = Array.isArray(ws?.rowData) ? ws.rowData : [];
-
-          const mergeRanges = Array.isArray(ws?.mergeRanges) && ws.mergeRanges.length > 0
-            ? ws.mergeRanges
-            : ["A1:C1"];
+          const mergeRanges =
+            Array.isArray(ws?.mergeRanges) && ws.mergeRanges.length > 0
+              ? ws.mergeRanges
+              : ["A1:C1"];
 
           return {
             worksheetName:
@@ -428,6 +427,9 @@ export const downloadElderlyMonthlyReport = async (
               headerKeys: Array.isArray(doc.headerKeys) ? doc.headerKeys : [],
               headerLabels: Array.isArray(doc.headerLabels) ? doc.headerLabels : [],
               rowData: Array.isArray(doc.rowData) ? doc.rowData : [],
+              mergeRanges: Array.isArray(doc.mergeRanges) && doc.mergeRanges.length > 0
+                ? doc.mergeRanges
+                : ["A1:C1"],
             },
           ];
 
@@ -438,15 +440,22 @@ export const downloadElderlyMonthlyReport = async (
           ? ws.headerLabels
           : headerKeys.map((k: string) => String(k).toUpperCase());
         const rowData = Array.isArray(ws?.rowData) ? ws.rowData : [];
+        const mergeRanges =
+          Array.isArray(ws?.mergeRanges) && ws.mergeRanges.length > 0
+            ? ws.mergeRanges
+            : ["A1:C1"];
 
         return {
-          worksheetName: String(ws?.worksheetName ?? `Sheet${index + 1}`).trim() || `Sheet${index + 1}`,
+          worksheetName:
+            String(ws?.worksheetName ?? `Sheet${index + 1}`).trim() ||
+            `Sheet${index + 1}`,
           puskesmas: String(ws?.puskesmas ?? doc.puskesmas ?? "-").trim() || "-",
           kabupaten: String(ws?.kabupaten ?? doc.kabupaten ?? "").trim(),
           bulanTahun: String(ws?.bulanTahun ?? doc.bulanTahun ?? "").trim(),
           headerKeys,
           headerLabels,
           rowData,
+          mergeRanges,
         };
       })
       .filter((ws: any) => ws.headerKeys.length > 0 && ws.rowData.length > 0);
