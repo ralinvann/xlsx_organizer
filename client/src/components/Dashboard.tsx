@@ -12,6 +12,10 @@ import {
   Eye,
   Download,
   RotateCw,
+  Heart,
+  ClipboardCheck,
+  UserCheck,
+  BarChart3,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
@@ -37,8 +41,16 @@ import {
   Bar,
   AreaChart,
   Area,
+  PieChart,
+  Pie,
+  Cell,
   ResponsiveContainer,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
 } from "recharts";
+import { Progress } from "./ui/progress";
 
 interface DashboardProps {
   userStatus: "guest" | "authenticated";
@@ -61,6 +73,9 @@ const MONTHS = [
 ];
 
 interface DashboardData {
+  totalReports?: number;
+  totalRowsScanned?: number;
+  validRowsScanned?: number;
   totalPraLansia: number;
   totalLansia: number;
   totalLansiaRisti: number;
@@ -78,6 +93,9 @@ interface DashboardData {
 }
 
 const defaultDashboardData: DashboardData = {
+  totalReports: 0,
+  totalRowsScanned: 0,
+  validRowsScanned: 0,
   totalPraLansia: 0,
   totalLansia: 0,
   totalLansiaRisti: 0,
@@ -103,21 +121,18 @@ function percent(part: number, total: number): string {
   return `${Math.round((part / total) * 100)}%`;
 }
 
-function distribute(total: number, labels: string[]): Array<{ name: string; value: number }> {
-  if (total <= 0) {
-    return labels.map((name) => ({ name, value: 0 }));
-  }
-  const base = Math.floor(total / labels.length);
-  const result = labels.map((name) => ({ name, value: base }));
-  let remainder = total - base * labels.length;
-  let index = 0;
-  while (remainder > 0) {
-    result[index].value += 1;
-    remainder -= 1;
-    index = (index + 1) % result.length;
-  }
-  return result;
+function percentValue(part: number, total: number): number {
+  if (!total) return 0;
+  return Math.round((part / total) * 100);
 }
+
+const CHART_COLORS = {
+  primary: "hsl(var(--primary))",
+  secondary: "#10b981",
+  tertiary: "#f59e0b",
+  accent: "#ec4899",
+  muted: "#94a3b8",
+};
 
 export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   const [showReportDialog, setShowReportDialog] = useState(false);
@@ -159,32 +174,57 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
     fetchDashboardData();
   }, []);
 
-  const elderlyMeasuredData = distribute(dashboardData.totalLansia, [
-    "Sen",
-    "Sel",
-    "Rab",
-    "Kam",
-    "Jum",
-    "Sab",
-    "Min",
-  ]);
+  // Calculate aggregated statistics for the new sections
+  const totalElderlyRecorded = dashboardData.totalPraLansia + dashboardData.totalLansia;
+  const totalServicesDelivered = dashboardData.screenedLansia + dashboardData.empowermentCount;
+  const penyuluhanPercentage = percentValue(dashboardData.screenedLansia, totalElderlyRecorded);
+  const pemberdayaanPercentage = percentValue(dashboardData.empowermentCount, totalElderlyRecorded);
 
-  const interventionData = distribute(dashboardData.screenedLansia, [
-    "Minggu 1",
-    "Minggu 2",
-    "Minggu 3",
-    "Minggu 4",
-  ]);
+  // Service coverage data
+  const serviceCoverageData = [
+    { name: "Penyuluhan", value: dashboardData.screenedLansia, fill: CHART_COLORS.primary },
+    { name: "Pemberdayaan", value: dashboardData.empowermentCount, fill: CHART_COLORS.secondary },
+  ];
 
-  const urgentCasesData = distribute(dashboardData.totalLansiaRisti, [
-    "Sen",
-    "Sel",
-    "Rab",
-    "Kam",
-    "Jum",
-    "Sab",
-    "Min",
-  ]);
+  // Service distribution for donut chart
+  const receivedBoth = Math.min(dashboardData.screenedLansia, dashboardData.empowermentCount);
+  const receivedOne = Math.abs(dashboardData.screenedLansia - dashboardData.empowermentCount);
+  const receivedNone = Math.max(0, totalElderlyRecorded - dashboardData.screenedLansia - receivedOne);
+
+  const serviceDistributionData = [
+    { name: "Kedua Layanan", value: receivedBoth, fill: CHART_COLORS.primary },
+    { name: "Satu Layanan", value: receivedOne, fill: CHART_COLORS.tertiary },
+    { name: "Belum Dilayani", value: receivedNone, fill: CHART_COLORS.muted },
+  ];
+
+  // Program impact metrics
+  const atLeastOneServicePercentage = percentValue(
+    totalElderlyRecorded - receivedNone,
+    totalElderlyRecorded
+  );
+  const bothServicesPercentage = percentValue(receivedBoth, totalElderlyRecorded);
+
+  // Activity summary metrics
+  const totalServiceInteractions = dashboardData.screenedLansia + dashboardData.empowermentCount;
+  const averageServicesPerPerson = totalElderlyRecorded > 0 
+    ? (totalServiceInteractions / totalElderlyRecorded).toFixed(2) 
+    : "0.00";
+
+  const elderlyMeasuredData = [
+    { name: "Pra Lansia", value: dashboardData.totalPraLansia },
+    { name: "Lansia", value: dashboardData.totalLansia },
+    { name: "Risti", value: dashboardData.totalLansiaRisti },
+  ];
+
+  const interventionData = [
+    { name: "Skrining", value: dashboardData.screenedLansia },
+    { name: "Pemberdayaan", value: dashboardData.empowermentCount },
+  ];
+
+  const urgentCasesData = [
+    { name: "Laki-laki", value: dashboardData.genderBreakdown.male },
+    { name: "Perempuan", value: dashboardData.genderBreakdown.female },
+  ];
 
   const healthImprovementData = [
     { name: "A", value: dashboardData.independenceLevels.A },
@@ -314,6 +354,12 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
     },
   ];
 
+  function getProgressColor(value: number): string {
+    if (value >= 70) return "bg-green-500";
+    if (value >= 40) return "bg-yellow-500";
+    return "bg-red-500";
+  }
+
   return (
     <div className="p-6 space-y-8">
       {userStatus === "guest" && (
@@ -364,6 +410,282 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
         </Button>
       </div>
 
+      {/* NEW: Hero Stat Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-primary">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Total Lansia Tercatat</p>
+                <p className="text-4xl font-bold text-primary">
+                  {loading ? "..." : compactNumber(totalElderlyRecorded)}
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-primary/10">
+                <Users className="w-8 h-8 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-green-500">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Total Layanan Diberikan</p>
+                <p className="text-4xl font-bold text-green-600">
+                  {loading ? "..." : compactNumber(totalServicesDelivered)}
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-green-100">
+                <Heart className="w-8 h-8 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-blue-500">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Menerima Penyuluhan</p>
+                <p className="text-4xl font-bold text-blue-600">
+                  {loading ? "..." : `${penyuluhanPercentage}%`}
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-blue-100">
+                <ClipboardCheck className="w-8 h-8 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-shadow border-l-4 border-l-purple-500">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Menerima Pemberdayaan</p>
+                <p className="text-4xl font-bold text-purple-600">
+                  {loading ? "..." : `${pemberdayaanPercentage}%`}
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-purple-100">
+                <UserCheck className="w-8 h-8 text-purple-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* NEW: Service Coverage Section */}
+      <Card className="shadow-md">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center gap-2">
+            <BarChart3 className="w-6 h-6" />
+            Cakupan Layanan
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* LEFT: Bar Chart */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Total Layanan per Kategori</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={serviceCoverageData}>
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                    {serviceCoverageData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="p-3 bg-primary/10 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Penyuluhan</p>
+                  <p className="text-2xl font-bold">{compactNumber(dashboardData.screenedLansia)}</p>
+                </div>
+                <div className="p-3 bg-green-100 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Pemberdayaan</p>
+                  <p className="text-2xl font-bold">{compactNumber(dashboardData.empowermentCount)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT: Donut Chart */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Distribusi Penerima Layanan</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie
+                    data={serviceDistributionData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={90}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {serviceDistributionData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+                <div className="p-2 bg-primary/10 rounded">
+                  <p className="text-xs text-muted-foreground">Kedua</p>
+                  <p className="text-lg font-bold">{compactNumber(receivedBoth)}</p>
+                </div>
+                <div className="p-2 bg-yellow-100 rounded">
+                  <p className="text-xs text-muted-foreground">Satu</p>
+                  <p className="text-lg font-bold">{compactNumber(receivedOne)}</p>
+                </div>
+                <div className="p-2 bg-gray-100 rounded">
+                  <p className="text-xs text-muted-foreground">Belum</p>
+                  <p className="text-lg font-bold">{compactNumber(receivedNone)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* NEW: Program Impact Section */}
+      <Card className="shadow-md">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center gap-2">
+            <TrendingUp className="w-6 h-6" />
+            Dampak Program
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-sm font-medium">Lansia Menerima Minimal Satu Layanan</p>
+                <span className={`text-lg font-bold ${atLeastOneServicePercentage >= 70 ? 'text-green-600' : atLeastOneServicePercentage >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                  {atLeastOneServicePercentage}%
+                </span>
+              </div>
+              <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all ${getProgressColor(atLeastOneServicePercentage)}`}
+                  style={{ width: `${atLeastOneServicePercentage}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {compactNumber(totalElderlyRecorded - receivedNone)} dari {compactNumber(totalElderlyRecorded)} lansia
+              </p>
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-sm font-medium">Lansia Menerima Kedua Layanan</p>
+                <span className={`text-lg font-bold ${bothServicesPercentage >= 70 ? 'text-green-600' : bothServicesPercentage >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                  {bothServicesPercentage}%
+                </span>
+              </div>
+              <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all ${getProgressColor(bothServicesPercentage)}`}
+                  style={{ width: `${bothServicesPercentage}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {compactNumber(receivedBoth)} dari {compactNumber(totalElderlyRecorded)} lansia
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
+              <div className="text-center p-4 bg-green-50 rounded-lg">
+                <p className="text-xs text-muted-foreground mb-1">Cakupan Tinggi</p>
+                <p className="text-2xl font-bold text-green-600">≥ 70%</p>
+                <p className="text-xs text-muted-foreground mt-1">Target Optimal</p>
+              </div>
+              <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                <p className="text-xs text-muted-foreground mb-1">Cakupan Sedang</p>
+                <p className="text-2xl font-bold text-yellow-600">40-69%</p>
+                <p className="text-xs text-muted-foreground mt-1">Perlu Peningkatan</p>
+              </div>
+              <div className="text-center p-4 bg-red-50 rounded-lg">
+                <p className="text-xs text-muted-foreground mb-1">Cakupan Rendah</p>
+                <p className="text-2xl font-bold text-red-600">&lt; 40%</p>
+                <p className="text-xs text-muted-foreground mt-1">Perlu Perhatian</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* NEW: Activity Summary Section */}
+      <Card className="shadow-md bg-gradient-to-br from-blue-50 to-indigo-50">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center gap-2">
+            <Activity className="w-6 h-6" />
+            Ringkasan Aktivitas
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="flex items-center gap-4 p-4 bg-white rounded-lg shadow">
+              <div className="p-3 bg-blue-100 rounded-full">
+                <ClipboardCheck className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Interaksi Layanan</p>
+                <p className="text-2xl font-bold">{compactNumber(totalServiceInteractions)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-4 bg-white rounded-lg shadow">
+              <div className="p-3 bg-purple-100 rounded-full">
+                <Users className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Rata-rata Layanan/Orang</p>
+                <p className="text-2xl font-bold">{averageServicesPerPerson}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-4 bg-white rounded-lg shadow">
+              <div className="p-3 bg-green-100 rounded-full">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Kemandirian Level A</p>
+                <p className="text-2xl font-bold">{percent(dashboardData.independenceLevels.A, dashboardData.totalLansia)}</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Total Laporan</p>
+          <p className="text-xl font-semibold">{loading ? "..." : compactNumber(dashboardData.totalReports ?? 0)}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Total Baris</p>
+          <p className="text-xl font-semibold">{loading ? "..." : compactNumber(dashboardData.totalRowsScanned ?? 0)}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Baris Valid</p>
+          <p className="text-xl font-semibold">{loading ? "..." : compactNumber(dashboardData.validRowsScanned ?? 0)}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Pra Lansia</p>
+          <p className="text-xl font-semibold">{loading ? "..." : compactNumber(dashboardData.totalPraLansia)}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Pemberdayaan</p>
+          <p className="text-xl font-semibold">{loading ? "..." : compactNumber(dashboardData.empowermentCount)}</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="shadow-md hover:shadow-lg transition-shadow">
           <CardHeader className="pb-3">
@@ -400,7 +722,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
             <div className="text-3xl font-bold mb-1">
               {loading ? "..." : compactNumber(dashboardData.screenedLansia)}
             </div>
-            <p className="text-sm text-muted-foreground mb-3">Skrining lansia (distinct NIK)</p>
+            <p className="text-sm text-muted-foreground mb-3">Skrining + pemberdayaan (distinct NIK)</p>
             <ResponsiveContainer width="100%" height={80}>
               <BarChart data={interventionData}>
                 <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
@@ -427,7 +749,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
             <div className="text-3xl font-bold mb-1">
               {userStatus === "guest" ? "***" : loading ? "..." : compactNumber(dashboardData.totalLansiaRisti)}
             </div>
-            <p className="text-sm text-muted-foreground mb-3">Lansia risiko tinggi (&gt;= 70 tahun)</p>
+            <p className="text-sm text-muted-foreground mb-3">Distribusi gender pada data valid</p>
             <ResponsiveContainer width="100%" height={80}>
               <AreaChart data={urgentCasesData}>
                 <defs>
@@ -470,6 +792,35 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* NEW: CTA for Non-Logged-In Users */}
+      {userStatus === "guest" && (
+        <Card className="shadow-md bg-gradient-to-r from-primary/10 to-blue-100 border-primary/30">
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-4 bg-white rounded-full shadow">
+                  <Lock className="w-8 h-8 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold mb-1">Akses Penuh Tersedia</h3>
+                  <p className="text-muted-foreground">
+                    Login untuk mengelola dan mengupload data perawatan lansia bulanan
+                  </p>
+                </div>
+              </div>
+              <Button 
+                size="lg" 
+                className="h-12 px-8 text-lg whitespace-nowrap"
+                onClick={() => onLoginClick?.()}
+              >
+                <Lock className="w-5 h-5 mr-2" />
+                Login Sekarang
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="shadow-md">
         <CardHeader>

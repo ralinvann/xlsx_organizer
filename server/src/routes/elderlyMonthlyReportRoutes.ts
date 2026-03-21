@@ -2,6 +2,7 @@
 import { Router } from "express";
 import {
   createElderlyMonthlyReport,
+  downloadElderlyMonthlyReport,
   getElderlyMonthlyReports,
   getElderlyMonthlyReportById,
   ElderlyMonthlyReportController,
@@ -13,6 +14,7 @@ router.post("/", createElderlyMonthlyReport);
 router.get("/", getElderlyMonthlyReports);
 
 router.get("/dashboard", ElderlyMonthlyReportController.getDashboardData);
+router.get("/:id/download", downloadElderlyMonthlyReport);
 
 router.get("/:id", getElderlyMonthlyReportById);
 
