@@ -213,17 +213,27 @@ export const createElderlyMonthlyReport = async (
             : Array.isArray(ws?.headerOrder)
             ? ws.headerOrder
             : [];
+
           const headerOrder = Array.isArray(ws?.headerOrder)
             ? ws.headerOrder
             : headerKeys;
+
           const headerLabels = Array.isArray(ws?.headerLabels)
             ? ws.headerLabels
             : headerKeys.map((k: string) => String(k).toUpperCase());
+
           const rowData = Array.isArray(ws?.rowData) ? ws.rowData : [];
 
+          const mergeRanges = Array.isArray(ws?.mergeRanges) && ws.mergeRanges.length > 0
+            ? ws.mergeRanges
+            : ["A1:C1"];
+
           return {
-            worksheetName: String(ws?.worksheetName ?? `Sheet${index + 1}`).trim() || `Sheet${index + 1}`,
-            puskesmas: String(ws?.puskesmas ?? req.body?.puskesmas ?? "-").trim() || "-",
+            worksheetName:
+              String(ws?.worksheetName ?? `Sheet${index + 1}`).trim() ||
+              `Sheet${index + 1}`,
+            puskesmas:
+              String(ws?.puskesmas ?? req.body?.puskesmas ?? "-").trim() || "-",
             kabupaten: String(ws?.kabupaten ?? topKabupaten).trim(),
             bulanTahun: String(ws?.bulanTahun ?? topBulanTahun).trim(),
             metaPairs: Array.isArray(ws?.metaPairs) ? ws.metaPairs : [],
@@ -233,6 +243,7 @@ export const createElderlyMonthlyReport = async (
             rowData,
             sourceSheetName: ws?.sourceSheetName,
             headerBlock: ws?.headerBlock,
+            mergeRanges,
           };
         })
         .filter((ws: any) => ws.headerKeys.length > 0 && ws.rowData.length > 0);
@@ -248,9 +259,9 @@ export const createElderlyMonthlyReport = async (
         topBulanTahun || String(normalizedWorksheets[0]?.bulanTahun ?? "").trim();
 
       if (!isNonEmptyString(docKabupaten) || !isNonEmptyString(docBulanTahun)) {
-        res
-          .status(400)
-          .json({ message: "kabupaten dan bulanTahun wajib pada payload worksheets." });
+        res.status(400).json({
+          message: "kabupaten dan bulanTahun wajib pada payload worksheets.",
+        });
         return;
       }
 
@@ -268,6 +279,7 @@ export const createElderlyMonthlyReport = async (
         rowData: firstWs.rowData,
         fileName: req.body?.fileName,
         sourceSheetName: firstWs.sourceSheetName,
+        mergeRanges: firstWs.mergeRanges,
         status: "imported",
       });
 
@@ -313,6 +325,8 @@ export const createElderlyMonthlyReport = async (
       return;
     }
 
+    const mergeRanges = ["A1:C1"];
+
     const doc = await ElderlyMonthlyReport.create({
       kabupaten: kabupaten.trim(),
       bulanTahun: bulanTahun.trim(),
@@ -330,6 +344,7 @@ export const createElderlyMonthlyReport = async (
           headerOrder: Array.isArray(headerOrder) ? headerOrder : headerKeys,
           rowData,
           sourceSheetName,
+          mergeRanges,
         },
       ],
       puskesmas: puskesmas.trim(),
@@ -342,6 +357,7 @@ export const createElderlyMonthlyReport = async (
       rowData,
       fileName,
       sourceSheetName,
+      mergeRanges,
       status: "imported",
     });
 
