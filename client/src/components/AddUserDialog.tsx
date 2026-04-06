@@ -14,11 +14,12 @@ const btnAnim = "transition-all duration-200 hover:scale-[1.02] active:scale-[0.
 
 interface AddUserDialogProps { open: boolean; onOpenChange: (open: boolean) => void }
 
-export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
+export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogProps & { onSuccess?: (createdUser?: any) => void }) {
   const { user: authUser } = useAuth();
   const isSuperadmin = String(authUser?.role || "").toUpperCase().trim() === "SUPERADMIN";
 
   const [firstName, setFirstName] = useState("");
+  const [middleName, setMiddleName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,7 +29,7 @@ export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const resetForm = () => { setFirstName(""); setLastName(""); setEmail(""); setPassword(""); setRole(""); setShowPassword(false); setProfilePicture(null); if (fileInputRef.current) fileInputRef.current.value = ""; };
+  const resetForm = () => { setFirstName(""); setMiddleName(""); setLastName(""); setEmail(""); setPassword(""); setRole(""); setShowPassword(false); setProfilePicture(null); if (fileInputRef.current) fileInputRef.current.value = ""; };
 
   const handleProfilePictureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -64,10 +65,18 @@ export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
           profilePictureUrl = res.data.url;
         } catch {}
       }
-      const payload = { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase(), password, role, profilePicture: profilePictureUrl };
-      const endpoint = role === "admin" || role === "superadmin" ? "/admin/users" : "/users/register";
-      const res = await api.post(endpoint, payload);
+      const payload = {
+        firstName: firstName.trim(),
+        middleName: middleName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        role,
+        profilePicture: profilePictureUrl,
+      };
+      const res = await api.post("/users", payload);
       toast.success(res.data?.message ?? "Pengguna ditambahkan.");
+      onSuccess?.(res.data?.user);
       resetForm();
       onOpenChange(false);
     } catch (err: any) {
@@ -103,6 +112,7 @@ export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
             </div>
 
             <div className="space-y-1.5"><Label className="text-sm">Nama Depan</Label><Input className="h-9" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-sm">Nama Tengah (Opsional)</Label><Input className="h-9" value={middleName} onChange={(e) => setMiddleName(e.target.value)} /></div>
             <div className="space-y-1.5"><Label className="text-sm">Nama Belakang</Label><Input className="h-9" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
             <div className="space-y-1.5"><Label className="text-sm">Email</Label><Input type="email" className="h-9" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
 

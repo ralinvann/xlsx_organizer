@@ -7,6 +7,8 @@ import { Textarea } from "./ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
+import { Label } from "./ui/label";
 import { Users, Shield, Activity, Search, UserPlus, Settings, Eye, Edit3, Trash2, Loader, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { AddUserDialog } from "./AddUserDialog";
 import { useAuth } from "../hooks/useAuth";
@@ -30,9 +32,14 @@ export function AdminPage() {
   const [reportSearch, setReportSearch] = useState("");
   const [reportYearFilter, setReportYearFilter] = useState("all");
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  const [viewUser, setViewUser] = useState<any | null>(null);
+  const [editUser, setEditUser] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ firstName: "", middleName: "", lastName: "", email: "", role: "officer", phone: "", workLocation: "" });
+  const [savingEditUser, setSavingEditUser] = useState(false);
   const { user, ready } = useAuth();
 
   const ALLOWED_ROLES = new Set(["ADMIN", "SUPERADMIN"]);
+  const isSuperadmin = String(user?.role || "").toUpperCase() === "SUPERADMIN";
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -76,6 +83,7 @@ export function AdminPage() {
 
   const getFullName = (d: any) => [d.firstName, d.middleName, d.lastName].filter(Boolean).join(" ") || "Unknown";
   const getInitials = (d: any) => getFullName(d).split(" ").map((n: string) => n[0]).join("").toUpperCase();
+  const getUserId = (d: any) => String(d?._id ?? d?.id ?? "");
 
   const filteredAndSortedUsers = fetchedUsers
     .filter((d) => {
@@ -106,6 +114,62 @@ export function AdminPage() {
     if (!confirm(`Hapus pengguna ${getFullName(userData)}?`)) return;
     try { await api.delete(`/users/${userData._id}`); setFetchedUsers((p) => p.filter((u) => u._id !== userData._id)); }
     catch (err: any) { alert("Gagal menghapus: " + (err.response?.data?.message || "Error")); }
+  };
+
+  const handleOpenViewUser = (userData: any) => {
+    setViewUser(userData);
+  };
+
+  const handleOpenEditUser = (userData: any) => {
+    setEditUser(userData);
+    setEditForm({
+      firstName: String(userData?.firstName ?? ""),
+      middleName: String(userData?.middleName ?? ""),
+      lastName: String(userData?.lastName ?? ""),
+      email: String(userData?.email ?? ""),
+      role: String(userData?.role ?? "officer"),
+      phone: String(userData?.phone ?? ""),
+      workLocation: String(userData?.workLocation ?? ""),
+    });
+  };
+
+  const handleSaveEditUser = async () => {
+    if (!editUser) return;
+    if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
+      alert("Nama depan dan belakang wajib diisi.");
+      return;
+    }
+    if (!editForm.email.includes("@")) {
+      alert("Email tidak valid.");
+      return;
+    }
+
+    const payload: Record<string, any> = {
+      firstName: editForm.firstName.trim(),
+      middleName: editForm.middleName.trim(),
+      lastName: editForm.lastName.trim(),
+      email: editForm.email.trim().toLowerCase(),
+      phone: editForm.phone.trim(),
+      workLocation: editForm.workLocation.trim(),
+    };
+
+    if (isSuperadmin) {
+      payload.role = editForm.role;
+    }
+
+    setSavingEditUser(true);
+    try {
+      const id = getUserId(editUser);
+      const { data } = await api.put(`/users/${id}`, payload);
+      const updated = data;
+      setFetchedUsers((prev) => prev.map((u) => (getUserId(u) === id ? { ...u, ...updated } : u)));
+      setEditUser(null);
+      alert("Data pengguna berhasil diperbarui.");
+    } catch (err: any) {
+      alert(err?.response?.data?.message || "Gagal memperbarui pengguna.");
+    } finally {
+      setSavingEditUser(false);
+    }
   };
 
   const handleDeleteReport = async (report: any) => {
@@ -233,7 +297,7 @@ export function AdminPage() {
                 </TableHeader>
                 <TableBody>
                   {displayUsers.map((userData) => (
-                    <TableRow key={userData._id} className="hover:bg-muted/50">
+                    <TableRow key={getUserId(userData)} className="hover:bg-muted/50">
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <Avatar className="w-8 h-8"><AvatarImage src={userData.profilePicture} /><AvatarFallback className="text-xs">{getInitials(userData)}</AvatarFallback></Avatar>
@@ -244,8 +308,8 @@ export function AdminPage() {
                       <TableCell><Badge variant="outline" className="text-xs capitalize">{userData.role}</Badge></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className={`h-7 w-7 ${btnAnim}`} onClick={() => alert(`Detail: ${getFullName(userData)}`)}><Eye className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className={`h-7 w-7 ${btnAnim}`} onClick={() => alert(`Edit: ${getFullName(userData)}`)}><Edit3 className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className={`h-7 w-7 ${btnAnim}`} onClick={() => handleOpenViewUser(userData)}><Eye className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className={`h-7 w-7 ${btnAnim}`} onClick={() => handleOpenEditUser(userData)}><Edit3 className="w-3.5 h-3.5" /></Button>
                           <Button variant="ghost" size="icon" className={`h-7 w-7 text-destructive hover:text-destructive ${btnAnim}`} onClick={() => handleDeleteUser(userData)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
@@ -402,7 +466,90 @@ export function AdminPage() {
         </CardContent>
       </Card>
 
-      <AddUserDialog open={isAddUserDialogOpen} onOpenChange={setIsAddUserDialogOpen} />
+      <AddUserDialog
+        open={isAddUserDialogOpen}
+        onOpenChange={setIsAddUserDialogOpen}
+        onSuccess={(createdUser) => {
+          if (!createdUser) return;
+          setFetchedUsers((prev) => [{ ...createdUser, _id: createdUser._id || createdUser.id }, ...prev]);
+        }}
+      />
+
+      <Dialog open={Boolean(viewUser)} onOpenChange={(open) => { if (!open) setViewUser(null); }}>
+        <DialogContent className="sm:max-w-[560px] w-[90vw]">
+          <DialogHeader>
+            <DialogTitle>Detail Pengguna</DialogTitle>
+          </DialogHeader>
+          {viewUser && (
+            <div className="space-y-3 text-sm">
+              <div><span className="text-muted-foreground">Nama:</span> {getFullName(viewUser)}</div>
+              <div><span className="text-muted-foreground">Email:</span> {viewUser.email || "-"}</div>
+              <div><span className="text-muted-foreground">Role:</span> {viewUser.role || "-"}</div>
+              <div><span className="text-muted-foreground">Telepon:</span> {viewUser.phone || "-"}</div>
+              <div><span className="text-muted-foreground">Lokasi Kerja:</span> {viewUser.workLocation || "-"}</div>
+              <div><span className="text-muted-foreground">Terakhir Login:</span> {viewUser.lastLoginAt ? new Date(viewUser.lastLoginAt).toLocaleString("id-ID") : "-"}</div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewUser(null)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editUser)} onOpenChange={(open) => { if (!open) setEditUser(null); }}>
+        <DialogContent className="sm:max-w-[560px] w-[90vw]">
+          <DialogHeader>
+            <DialogTitle>Edit Akun Pengguna</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm">Nama Depan</Label>
+                <Input value={editForm.firstName} onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Nama Tengah (Opsional)</Label>
+                <Input value={editForm.middleName} onChange={(e) => setEditForm((p) => ({ ...p, middleName: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-sm">Nama Belakang</Label>
+                <Input value={editForm.lastName} onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-sm">Email</Label>
+                <Input type="email" value={editForm.email} onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Telepon</Label>
+                <Input value={editForm.phone} onChange={(e) => setEditForm((p) => ({ ...p, phone: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">Lokasi Kerja</Label>
+                <Input value={editForm.workLocation} onChange={(e) => setEditForm((p) => ({ ...p, workLocation: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-sm">Role</Label>
+                {isSuperadmin ? (
+                  <Select value={editForm.role} onValueChange={(v) => setEditForm((p) => ({ ...p, role: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Pilih role" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="officer">Officer</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="superadmin">Superadmin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={editForm.role} disabled />
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={savingEditUser} onClick={() => setEditUser(null)}>Batal</Button>
+            <Button disabled={savingEditUser} onClick={() => void handleSaveEditUser()}>{savingEditUser ? "Menyimpan..." : "Simpan"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

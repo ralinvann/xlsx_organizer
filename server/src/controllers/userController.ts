@@ -310,6 +310,93 @@ export const listUsers = async (_req: Request, res: Response): Promise<void> => 
 };
 
 /**
+ * @route POST /api/users
+ * @desc Create user (admin/superadmin). Only superadmin can create admin/superadmin roles.
+ */
+export const createUserByAdmin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actorRole = String(req.user?.role ?? "").toLowerCase();
+
+    const firstName = String(req.body.firstName ?? "").trim();
+    const middleName = String(req.body.middleName ?? "").trim();
+    const lastName = String(req.body.lastName ?? "").trim();
+    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const password = String(req.body.password ?? "");
+    const requestedRole = String(req.body.role ?? "officer").trim().toLowerCase();
+    const role = requestedRole || "officer";
+    const profilePicture = String(req.body.profilePicture ?? "").trim();
+    const phone = String(req.body.phone ?? "").trim();
+    const workLocation = String(req.body.workLocation ?? "").trim();
+
+    if (!firstName || !lastName || !email || !password) {
+      res.status(400).json({ message: "Missing required fields" });
+      return;
+    }
+
+    if (!email.includes("@")) {
+      res.status(400).json({ message: "Invalid email" });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ message: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const allowedRoles = new Set(["officer", "admin", "superadmin"]);
+    if (!allowedRoles.has(role)) {
+      res.status(400).json({ message: "Invalid role" });
+      return;
+    }
+
+    if (actorRole !== "superadmin" && (role === "admin" || role === "superadmin")) {
+      res.status(403).json({ message: "Only superadmin can assign admin/superadmin role" });
+      return;
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      res.status(409).json({ message: "Email already registered" });
+      return;
+    }
+
+    const hashed = await hashPassword(password);
+    const user = await User.create({
+      firstName,
+      middleName,
+      lastName,
+      email,
+      password: hashed,
+      role,
+      profilePicture,
+      phone,
+      workLocation,
+    });
+
+    res.status(201).json({
+      message: "User created successfully",
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        middleName: user.middleName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        profilePicture: user.profilePicture,
+        phone: user.phone,
+        workLocation: user.workLocation,
+        createdAt: user.createdAt,
+      },
+    });
+    return;
+  } catch (err) {
+    console.error("createUserByAdmin error:", err);
+    res.status(500).json({ message: "User creation failed" });
+    return;
+  }
+};
+
+/**
  * @route GET /api/users/:id
  * @desc Get user by ID (admin/superadmin)
  */
@@ -336,16 +423,47 @@ export const getUser = async (req: Request, res: Response): Promise<void> => {
  */
 export const updateUserByAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
+    const actorRole = String(req.user?.role ?? "").toLowerCase();
+
     const firstName = req.body.firstName !== undefined ? String(req.body.firstName).trim() : undefined;
     const middleName = req.body.middleName !== undefined ? String(req.body.middleName).trim() : undefined;
     const lastName = req.body.lastName !== undefined ? String(req.body.lastName).trim() : undefined;
-    const role = req.body.role !== undefined ? String(req.body.role).trim() : undefined;
+    const email = req.body.email !== undefined ? String(req.body.email).trim().toLowerCase() : undefined;
+    const phone = req.body.phone !== undefined ? String(req.body.phone).trim() : undefined;
+    const workLocation = req.body.workLocation !== undefined ? String(req.body.workLocation).trim() : undefined;
+    const role = req.body.role !== undefined ? String(req.body.role).trim().toLowerCase() : undefined;
 
     const $set: Record<string, any> = {};
     if (firstName !== undefined) $set.firstName = firstName;
     if (middleName !== undefined) $set.middleName = middleName;
     if (lastName !== undefined) $set.lastName = lastName;
-    if (role !== undefined) $set.role = role;
+    if (email !== undefined) $set.email = email;
+    if (phone !== undefined) $set.phone = phone;
+    if (workLocation !== undefined) $set.workLocation = workLocation;
+
+    if (role !== undefined) {
+      if (actorRole !== "superadmin") {
+        res.status(403).json({ message: "Only superadmin can update role" });
+        return;
+      }
+      if (!["officer", "admin", "superadmin"].includes(role)) {
+        res.status(400).json({ message: "Invalid role" });
+        return;
+      }
+      $set.role = role;
+    }
+
+    if (email !== undefined) {
+      if (!email.includes("@")) {
+        res.status(400).json({ message: "Invalid email" });
+        return;
+      }
+      const existing = await User.findOne({ email, _id: { $ne: req.params.id } });
+      if (existing) {
+        res.status(409).json({ message: "Email already registered" });
+        return;
+      }
+    }
 
     const updated = await User.findByIdAndUpdate(
       req.params.id,

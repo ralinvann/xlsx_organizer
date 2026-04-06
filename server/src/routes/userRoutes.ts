@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   register, login, me, updateProfile, updatePassword,
-  uploadAvatar, listUsers, getUser, updateUserByAdmin, deleteUser
+  uploadAvatar, listUsers, getUser, createUserByAdmin, updateUserByAdmin, deleteUser
 } from "../controllers/userController";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { upload } from "../middleware/upload";
@@ -19,6 +19,7 @@ router.put("/me/password", requireAuth, updatePassword);
 router.post("/me/avatar", requireAuth, upload.single("avatar"), uploadAvatar);
 
 // Admin
+router.post("/", requireAuth, requireRole("admin", "superadmin"), createUserByAdmin);
 router.get("/", requireAuth, requireRole("admin", "superadmin"), listUsers);
 router.get("/:id", requireAuth, requireRole("admin", "superadmin"), getUser);
 router.put("/:id", requireAuth, requireRole("admin", "superadmin"), updateUserByAdmin);
