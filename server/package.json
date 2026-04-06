@@ -6,6 +6,7 @@
     "start": "node dist/server.js",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
+    "reset-db": "ts-node resetDb.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

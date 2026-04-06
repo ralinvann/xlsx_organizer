@@ -11,6 +11,8 @@ export interface IUser {
   email: string;
   role: Role;
   profilePicture?: string;
+  phone?: string;
+  workLocation?: string;
   createdAt?: string;
   lastLoginAt?: string;
   lastLoginIP?: string;
@@ -39,10 +41,33 @@ export function useAuth() {
     setUser(u);
   }, []);
 
+  function normalizeUser(raw: any): IUser | null {
+    if (!raw) return null;
+
+    const id = String(raw.id ?? raw._id ?? "").trim();
+    if (!id) return null;
+
+    return {
+      id,
+      firstName: String(raw.firstName ?? "").trim(),
+      middleName: String(raw.middleName ?? "").trim(),
+      lastName: String(raw.lastName ?? "").trim(),
+      email: String(raw.email ?? "").trim(),
+      role: String(raw.role ?? "officer").toLowerCase() as Role,
+      profilePicture: String(raw.profilePicture ?? "").trim(),
+      phone: String(raw.phone ?? "").trim(),
+      workLocation: String(raw.workLocation ?? "").trim(),
+      createdAt: raw.createdAt,
+      lastLoginAt: raw.lastLoginAt,
+      lastLoginIP: raw.lastLoginIP,
+      lastUserAgent: raw.lastUserAgent,
+    };
+  }
+
   function extractUser(payload: any): IUser | null {
     if (!payload) return null;
-    if (payload.user) return payload.user as IUser;
-    return payload as IUser;
+    if (payload.user) return normalizeUser(payload.user);
+    return normalizeUser(payload);
   }
 
   const login = useCallback(async (email: string, password: string, remember = false) => {
@@ -79,7 +104,7 @@ export function useAuth() {
     }
   }, [persist]);
 
-  const updateProfile = useCallback(async (payload: Partial<Pick<IUser, "firstName" | "middleName" | "lastName">>) => {
+  const updateProfile = useCallback(async (payload: Partial<Pick<IUser, "firstName" | "middleName" | "lastName" | "phone" | "workLocation">>) => {
     setLoading(true);
     try {
       const { data } = await api.put("/users/me", payload);

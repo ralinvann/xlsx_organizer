@@ -3,6 +3,7 @@ import User from "../models/User";
 import { hashPassword, comparePassword } from "../utils/hash";
 import { signUser } from "../utils/jwt";
 import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload";
+import { logActivity } from "../utils/activityLogger";
 
 /**
  * @route POST /api/users/register
@@ -17,6 +18,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
     const role = "officer";
+    const phone = String(req.body.phone ?? "").trim();
+    const workLocation = String(req.body.workLocation ?? "").trim();
 
     if (!firstName || !lastName || !email || !password) {
       res.status(400).json({ message: "Missing required fields" });
@@ -48,6 +51,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       email,
       password: hashed,
       role,
+      phone,
+      workLocation,
     });
 
     const token = signUser(user);
@@ -62,6 +67,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        phone: user.phone,
+        workLocation: user.workLocation,
         createdAt: user.createdAt,
       },
     });
@@ -97,6 +104,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     const token = signUser(user);
 
+    await logActivity({
+      userId: String(user._id),
+      action: "login",
+      details: "Login ke sistem",
+      metadata: { ip: req.ip || req.socket.remoteAddress || "unknown" },
+    });
+
     res.status(200).json({
       token,
       user: {
@@ -107,6 +121,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        phone: user.phone,
+        workLocation: user.workLocation,
         createdAt: user.createdAt,
       },
     });
@@ -152,11 +168,15 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     const firstName = req.body.firstName !== undefined ? String(req.body.firstName).trim() : undefined;
     const middleName = req.body.middleName !== undefined ? String(req.body.middleName).trim() : undefined;
     const lastName = req.body.lastName !== undefined ? String(req.body.lastName).trim() : undefined;
+    const phone = req.body.phone !== undefined ? String(req.body.phone).trim() : undefined;
+    const workLocation = req.body.workLocation !== undefined ? String(req.body.workLocation).trim() : undefined;
 
     const $set: Record<string, any> = {};
     if (firstName !== undefined) $set.firstName = firstName;
     if (middleName !== undefined) $set.middleName = middleName;
     if (lastName !== undefined) $set.lastName = lastName;
+    if (phone !== undefined) $set.phone = phone;
+    if (workLocation !== undefined) $set.workLocation = workLocation;
 
     const updated = await User.findByIdAndUpdate(
       userId,
@@ -167,6 +187,16 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     if (!updated) {
       res.status(404).json({ message: "User not found" });
       return;
+    }
+
+    const changedFields = Object.keys($set);
+    if (changedFields.length > 0) {
+      await logActivity({
+        userId,
+        action: "profile_update",
+        details: "Memperbarui profil",
+        metadata: { fields: changedFields },
+      });
     }
 
     res.status(200).json(updated);
@@ -248,6 +278,13 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
       res.status(404).json({ message: "User not found" });
       return;
     }
+
+    await logActivity({
+      userId,
+      action: "file_upload",
+      details: "Mengunggah foto profil",
+      metadata: { type: "avatar" },
+    });
 
     res.status(200).json(updated);
     return;

@@ -1,26 +1,18 @@
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Home, User, Users, HelpCircle, Upload, FileText, LogIn, LogOut } from "lucide-react";
-import { useAuth } from "../hooks/useAuth";
 
 interface NavigationProps {
   currentPage: string;
   onPageChange: (page: string) => void;
   isAuthed: boolean;
   onShowLogin: () => void;
+  onLogout: () => void;
 }
 
-export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin }: NavigationProps) {
-  const { logout } = useAuth();
-
+export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin, onLogout }: NavigationProps) {
   const handleLogout = () => {
-    try {
-      logout(); // clears localStorage and user state
-    } finally {
-      // Trigger login UI if available, then ensure user lands on login page
-      onShowLogin?.();
-      window.location.href = "/login";
-    }
+    onLogout();
   };
 
   const publicNavItems = [
@@ -48,49 +40,59 @@ export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin }:
   };
 
   return (
-    <nav className="bg-white shadow-sm border-b border-border p-4">
-      <div className="max-w-7xl mx-auto">
+    <nav className="bg-white shadow-sm border-b border-border">
+      <div className="max-w-7xl mx-auto px-6 py-4">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-semibold text-primary">Elder Care</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 600 }}>Elder Care</h1>
             {!isAuthed && (
-              <Badge variant="outline" className="text-sm px-3 py-1">
+              <Badge variant="outline" className="px-2.5 py-0.5">
                 Guest Mode
               </Badge>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-sm text-muted-foreground">
+            <span className="text-sm text-muted-foreground hidden sm:inline">
               Monitoring Kesehatan Lansia
-            </div>
+            </span>
             {!isAuthed ? (
-              <Button onClick={onShowLogin} size="lg" className="h-12 px-6 text-lg gap-3">
-                <LogIn size={20} />
+              <Button
+                onClick={onShowLogin}
+                className="gap-2 transition-all duration-200 hover:scale-[1.03] active:scale-[0.97]"
+              >
+                <LogIn size={18} />
                 Login
               </Button>
             ) : (
-              <Button onClick={handleLogout} size="lg" className="h-12 px-6 text-lg gap-3">
-                <LogOut size={20} />
+              <Button
+                variant="outline"
+                onClick={handleLogout}
+                className="gap-2 transition-all duration-200 hover:scale-[1.03] active:scale-[0.97]"
+              >
+                <LogOut size={18} />
                 Logout
               </Button>
             )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const isActive = currentPage === item.id;
             const isRestricted = !isAuthed && !['dashboard', 'help'].includes(item.id);
             return (
               <Button
                 key={item.id}
-                variant={currentPage === item.id ? "default" : "outline"}
-                size="lg"
+                variant={isActive ? "default" : "ghost"}
+                size="sm"
                 onClick={() => handleNavClick(item.id)}
-                className={`h-12 px-6 text-lg gap-3 ${isRestricted ? 'opacity-60' : ''}`}
+                className={`gap-2 transition-all duration-200 hover:scale-[1.03] active:scale-[0.97] ${
+                  isRestricted ? 'opacity-50' : ''
+                } ${isActive ? 'shadow-sm' : ''}`}
               >
-                <Icon size={20} />
+                <Icon size={16} />
                 {item.label}
-                {isRestricted && <span className="text-xs">🔒</span>}
+                {isRestricted && <span className="text-xs opacity-70">🔒</span>}
               </Button>
             );
           })}

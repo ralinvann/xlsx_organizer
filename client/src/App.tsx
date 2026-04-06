@@ -9,17 +9,9 @@ import { AdminPage } from "./components/AdminPage";
 import { useAuth } from "./hooks/useAuth";
 
 export default function App() {
-  const { user, isAuthed, ready, loading } = useAuth();
+  const { isAuthed, ready, loading, login, logout } = useAuth();
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [previewData, setPreviewData] = useState<any>(null);
-
-  const [justLoggedIn, setJustLoggedIn] = useState(false);
-
-  useEffect(() => {
-    if (isAuthed) {
-      setJustLoggedIn(false);
-    }
-  }, [isAuthed]);
 
   useEffect(() => {
     if (!ready || loading) return;
@@ -27,13 +19,12 @@ export default function App() {
     const protectedPages = ["upload", "preview", "account", "users"];
     if (
       !isAuthed &&
-      !justLoggedIn &&
       currentPage !== "login" &&
       protectedPages.includes(currentPage)
     ) {
       setCurrentPage("login");
     }
-  }, [ready, loading, isAuthed, justLoggedIn, currentPage]);
+  }, [ready, loading, isAuthed, currentPage]);
 
   useEffect(() => {
     const handler = () => {
@@ -55,11 +46,16 @@ export default function App() {
 
   const handlePageChange = (page: string) => {
     const protectedPages = ["upload", "preview", "account", "users"];
-    if (protectedPages.includes(page) && !(isAuthed || justLoggedIn)) {
+    if (protectedPages.includes(page) && !isAuthed) {
       setCurrentPage("login");
     } else {
       setCurrentPage(page);
     }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setCurrentPage("login");
   };
 
   const renderCurrentPage = () => {
@@ -78,17 +74,21 @@ export default function App() {
       case "login":
         return (
           <LoginScreen
-            onLogin={() => {
-              setJustLoggedIn(true);
-              setCurrentPage("dashboard");
+            onLogin={async (email, password, remember) => {
+              const result = await login(email, password, remember);
+              if (result.ok) setCurrentPage("dashboard");
+              return result;
             }}
+            onBack={() => setCurrentPage("dashboard")}
+            onGuest={() => setCurrentPage("dashboard")}
           />
         );
 
       case "dashboard":
         return (
           <Dashboard
-            userStatus={isAuthed || justLoggedIn ? "authenticated" : "guest"}
+            userStatus={isAuthed ? "authenticated" : "guest"}
+            onLoginClick={() => setCurrentPage("login")}
           />
         );
 
@@ -155,7 +155,8 @@ export default function App() {
       default:
         return (
           <Dashboard
-            userStatus={isAuthed || justLoggedIn ? "authenticated" : "guest"}
+            userStatus={isAuthed ? "authenticated" : "guest"}
+            onLoginClick={() => setCurrentPage("login")}
           />
         );
     }
@@ -167,8 +168,9 @@ export default function App() {
         <Navigation
           currentPage={currentPage}
           onPageChange={handlePageChange}
-          isAuthed={isAuthed || justLoggedIn}
+          isAuthed={isAuthed}
           onShowLogin={() => setCurrentPage("login")}
+          onLogout={() => void handleLogout()}
         />
       )}
       <main className={currentPage === "login" ? "" : "max-w-7xl mx-auto"}>

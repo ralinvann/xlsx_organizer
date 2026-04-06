@@ -1,7 +1,18 @@
 // controllers/elderlyMonthlyReportController.ts
 import { Request, Response } from "express";
 import { ElderlyMonthlyReport } from "../models/ElderlyMonthlyReport";
+import { ElderlyPerson } from "../models/ElderlyPerson";
 import { generateMonthlyReportExcel } from "../utils/generateMonthlyReportExcel";
+import {
+  generateAnnualReportA,
+  findMonthIndex,
+  type MonthSheet,
+} from "../utils/generateAnnualReportA";
+import {
+  generateAnnualReportB,
+  type MonthSheetB,
+} from "../utils/generateAnnualReportB";
+import { logActivity } from "../utils/activityLogger";
 
 type IndividualRecord = Record<string, any>;
 
@@ -32,6 +43,53 @@ function parseBooleanFlag(value: any): boolean {
   if (value === null || value === undefined) return false;
   const normalized = String(value).trim().toLowerCase();
   return YES_VALUES.has(normalized);
+}
+
+function isPresenceBasedServiceKey(normalizedKey: string): boolean {
+  if (
+    normalizedKey.includes("skrining") ||
+    normalizedKey.includes("pengobatan") ||
+    normalizedKey.includes("penyuluhan") ||
+    normalizedKey.includes("pemberdayaan")
+  ) {
+    return true;
+  }
+
+  // Tingkat kemandirian columns are commonly represented as A/B/C (and may be suffixed e.g. A_2)
+  return /^[abc]\d*$/.test(normalizedKey);
+}
+
+function parsePresenceFlag(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  // Numbers/booleans/other values are considered filled when present.
+  return true;
+}
+
+function normalizeServicePresenceRow(record: IndividualRecord): IndividualRecord {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return record;
+  }
+
+  const normalizedRecord: IndividualRecord = { ...record };
+
+  for (const key of Object.keys(normalizedRecord)) {
+    const normalizedKey = normalizeLookupKey(key);
+    if (!isPresenceBasedServiceKey(normalizedKey)) continue;
+    normalizedRecord[key] = parsePresenceFlag(normalizedRecord[key]);
+  }
+
+  return normalizedRecord;
+}
+
+function normalizeServicePresenceRows(rowData: any[]): IndividualRecord[] {
+  if (!Array.isArray(rowData)) return [];
+
+  return rowData.map((row) =>
+    row && typeof row === "object" && !Array.isArray(row)
+      ? normalizeServicePresenceRow(row as IndividualRecord)
+      : row
+  );
 }
 
 function parseAge(value: any): number | null {
@@ -164,6 +222,140 @@ function normalizeIndependenceLevel(record: IndividualRecord): "A" | "B" | "C" |
   return null;
 }
 
+async function upsertPersonsFromReport(doc: any): Promise<void> {
+  const allRows = extractRows(doc);
+  if (!allRows || allRows.length === 0) return;
+
+  const kabupaten = String(doc.kabupaten ?? "").trim();
+  const bulanTahun = String(doc.bulanTahun ?? "").trim();
+
+  // Build a quick lookup for worksheet metadata by rowData reference if possible
+  const worksheetMeta: Array<{ rows: IndividualRecord[]; puskesmas?: string; worksheetName?: string }> = [];
+  if (Array.isArray(doc.worksheets)) {
+    for (const ws of doc.worksheets) {
+      if (Array.isArray(ws.rowData)) {
+        worksheetMeta.push({
+          rows: ws.rowData,
+          puskesmas: ws.puskesmas,
+          worksheetName: ws.worksheetName,
+        });
+      }
+    }
+  }
+
+  for (const record of allRows) {
+    const nikValue = findValue(record, [
+      (key) => key === "nik",
+      (key) => key.includes("nik"),
+      (key) => key.includes("noktp"),
+      (key) => key.includes("ktp"),
+    ]);
+    const nik = String(nikValue ?? "").trim();
+    if (!nik) continue;
+
+    const ageValue = findValue(record, [
+      (key) => key === "age",
+      (key) => key === "umur",
+      (key) => key === "usia",
+      (key) => key.includes("umur"),
+      (key) => key.includes("usia"),
+    ]);
+    let age = parseAge(ageValue);
+    if (age === null) {
+      const birthDateValue = findValue(record, [
+        (key) => key === "birthdate",
+        (key) => key === "tanggallahir",
+        (key) => key === "tgllahir",
+        (key) => key.includes("tanggal") && key.includes("lahir"),
+        (key) => key.includes("lahir"),
+        (key) => key.includes("birth") && key.includes("date"),
+      ]);
+      age = parseBirthDateToAge(birthDateValue);
+    }
+
+    const genderValue = findValue(record, [
+      (key) => key === "jk",
+      (key) => key === "gender",
+      (key) => key === "jeniskelamin",
+      (key) => key.includes("jenis") && key.includes("kelamin"),
+    ]);
+    const gender = normalizeGender(genderValue) ?? undefined;
+
+    const nameValue = findValue(record, [
+      (key) => key === "nama",
+      (key) => key.includes("nama"),
+      (key) => key.includes("name"),
+    ]);
+    const name = String(nameValue ?? "").trim() || undefined;
+
+    const puskesmasValue = findValue(record, [
+      (key) => key.includes("puskesmas"),
+    ]);
+    const puskesmas = String(puskesmasValue ?? doc.puskesmas ?? "").trim() || undefined;
+
+    const dataFlagValue = findValue(record, [
+      (key) => key === "data",
+      (key) => key === "d_a_t_a",
+      (key) => key.includes("data"),
+    ]);
+    const screenedValue = findValue(record, [
+      (key) => key === "screening",
+      (key) => key.includes("skrining"),
+    ]);
+    const empowermentValue = findValue(record, [
+      (key) => key === "empowerment",
+      (key) => key.includes("pemberdayaan"),
+    ]);
+
+    const flags = {
+      data: parseBooleanFlag(dataFlagValue),
+      screened: parseBooleanFlag(screenedValue),
+      empowered: parseBooleanFlag(empowermentValue),
+    };
+
+    // Try to locate worksheet/source info for this record (best-effort only)
+    let sourceWorksheetName: string | undefined;
+    let sourcePuskesmas: string | undefined = puskesmas;
+    let rowIndex: number | undefined;
+    outer: for (const meta of worksheetMeta) {
+      const idx = meta.rows.indexOf(record as any);
+      if (idx >= 0) {
+        rowIndex = idx;
+        sourceWorksheetName = meta.worksheetName;
+        if (!sourcePuskesmas && meta.puskesmas) sourcePuskesmas = meta.puskesmas;
+        break outer;
+      }
+    }
+
+    await ElderlyPerson.findOneAndUpdate(
+      { nik },
+      {
+        $set: {
+          nik,
+          name,
+          gender,
+          age: typeof age === "number" ? age : undefined,
+          kabupaten,
+          puskesmas: sourcePuskesmas,
+          flags,
+          lastReport: doc._id,
+          lastBulanTahun: bulanTahun,
+        },
+        $setOnInsert: {},
+        $addToSet: {
+          sources: {
+            report: doc._id,
+            bulanTahun,
+            worksheetName: sourceWorksheetName,
+            rowIndex,
+          },
+        },
+      },
+      { upsert: true, new: false }
+    );
+  }
+}
+
 function extractRows(doc: any): IndividualRecord[] {
   const rows: IndividualRecord[] = [];
 
@@ -222,7 +414,9 @@ export const createElderlyMonthlyReport = async (
             ? ws.headerLabels
             : headerKeys.map((k: string) => String(k).toUpperCase());
 
-          const rowData = Array.isArray(ws?.rowData) ? ws.rowData : [];
+          const rowData = Array.isArray(ws?.rowData)
+            ? normalizeServicePresenceRows(ws.rowData)
+            : [];
 
           const mergeRanges = Array.isArray(ws?.mergeRanges) && ws.mergeRanges.length > 0
             ? ws.mergeRanges
@@ -283,6 +477,20 @@ export const createElderlyMonthlyReport = async (
         status: "imported",
       });
 
+      await upsertPersonsFromReport(doc);
+
+      await logActivity({
+        userId: req.user?.id,
+        action: "file_upload",
+        details: "Mengunggah file laporan bulanan",
+        metadata: {
+          reportId: String(doc._id),
+          fileName: req.body?.fileName || null,
+          bulanTahun: docBulanTahun,
+          kabupaten: docKabupaten,
+        },
+      });
+
       res.status(201).json({ message: "Saved", reportId: doc._id, report: doc });
       return;
     }
@@ -325,6 +533,8 @@ export const createElderlyMonthlyReport = async (
       return;
     }
 
+    const normalizedRowData = normalizeServicePresenceRows(rowData);
+
     const mergeRanges = ["A1:C1"];
 
     const doc = await ElderlyMonthlyReport.create({
@@ -342,7 +552,7 @@ export const createElderlyMonthlyReport = async (
             ? headerLabels
             : headerKeys.map((k: string) => String(k).toUpperCase()),
           headerOrder: Array.isArray(headerOrder) ? headerOrder : headerKeys,
-          rowData,
+          rowData: normalizedRowData,
           sourceSheetName,
           mergeRanges,
         },
@@ -354,11 +564,25 @@ export const createElderlyMonthlyReport = async (
         ? headerLabels
         : headerKeys.map((k: string) => String(k).toUpperCase()),
       headerOrder: Array.isArray(headerOrder) ? headerOrder : headerKeys,
-      rowData,
+      rowData: normalizedRowData,
       fileName,
       sourceSheetName,
       mergeRanges,
       status: "imported",
+    });
+
+    await upsertPersonsFromReport(doc);
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "file_upload",
+      details: "Mengunggah file laporan bulanan",
+      metadata: {
+        reportId: String(doc._id),
+        fileName: fileName || null,
+        bulanTahun: bulanTahun?.trim?.() || null,
+        kabupaten: kabupaten?.trim?.() || null,
+      },
     });
 
     res.status(201).json({ message: "Saved", reportId: doc._id, report: doc });
@@ -375,7 +599,8 @@ export const getElderlyMonthlyReports = async (
   try {
     const docs = await ElderlyMonthlyReport.find()
       .sort({ createdAt: -1 })
-      .limit(50);
+      .populate("createdBy", "firstName middleName lastName email")
+      .lean();
     res.json({ items: docs });
   } catch (e) {
     console.error("getElderlyMonthlyReports error:", e);
@@ -475,6 +700,58 @@ export const downloadElderlyMonthlyReport = async (
   } catch (e) {
     console.error("downloadElderlyMonthlyReport error:", e);
     res.status(500).json({ message: "Server error downloading report." });
+  }
+};
+
+export const deleteElderlyMonthlyReport = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const report = await ElderlyMonthlyReport.findById(id);
+    if (!report) {
+      res.status(404).json({ message: "Laporan tidak ditemukan." });
+      return;
+    }
+
+    const reportObjectId = report._id;
+    const reportSummary = {
+      reportId: String(reportObjectId),
+      fileName: report.fileName || null,
+      bulanTahun: report.bulanTahun || null,
+      kabupaten: report.kabupaten || null,
+    };
+
+    // Remove this report from all ElderlyPerson source arrays
+    await ElderlyPerson.updateMany(
+      { "sources.report": reportObjectId },
+      { $pull: { sources: { report: reportObjectId } } }
+    );
+
+    // Delete persons who now have no remaining sources
+    await ElderlyPerson.deleteMany({ sources: { $size: 0 } });
+
+    // Clear stale lastReport references for persons that still have other sources
+    await ElderlyPerson.updateMany(
+      { lastReport: reportObjectId },
+      { $unset: { lastReport: "", lastBulanTahun: "" } }
+    );
+
+    await ElderlyMonthlyReport.findByIdAndDelete(id);
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "file_delete",
+      details: "Menghapus file laporan bulanan",
+      metadata: reportSummary,
+    });
+
+    res.status(200).json({ message: "Laporan dan data terkait berhasil dihapus." });
+  } catch (e) {
+    console.error("deleteElderlyMonthlyReport error:", e);
+    res.status(500).json({ message: "Server error saat menghapus laporan." });
   }
 };
 
@@ -618,4 +895,130 @@ export const getDashboardData = async (
 
 export const ElderlyMonthlyReportController = {
   getDashboardData,
+};
+
+// ─── Shared helper: gather 12 months of rowData for a year ────────────────────
+async function buildMonthSheetsForYear(
+  year: string,
+  puskesmasFilter: string,
+): Promise<{ monthSheetsA: Array<MonthSheet | null>; monthSheetsB: Array<MonthSheetB | null>; kabupaten: string; puskesmas: string }> {
+  const yearPattern = new RegExp(`\\b${year}\\b`);
+  const docs = await ElderlyMonthlyReport.find({ bulanTahun: yearPattern }).lean() as any[];
+
+  const monthSheetsA: Array<MonthSheet | null> = Array(12).fill(null);
+  const monthSheetsB: Array<MonthSheetB | null> = Array(12).fill(null);
+
+  let detectedKabupaten = "";
+  let detectedPuskesmas = puskesmasFilter || "";
+
+  // Collect rows per month index
+  const monthRows: Array<{ rows: any[]; headerKeys: string[]; puskesmas: string }[]> = Array.from({ length: 12 }, () => []);
+
+  for (const doc of docs) {
+    const bt = String(doc.bulanTahun ?? "").trim();
+    const mIdx = findMonthIndex(bt);
+    if (mIdx < 0) continue;
+
+    if (!detectedKabupaten && doc.kabupaten) detectedKabupaten = String(doc.kabupaten).replace(/^:\s*/, "").trim();
+
+    const worksheets = Array.isArray(doc.worksheets) && doc.worksheets.length > 0
+      ? doc.worksheets
+      : [{
+          worksheetName: doc.sourceSheetName || "Sheet1",
+          puskesmas: doc.puskesmas || "-",
+          headerKeys: Array.isArray(doc.headerKeys) ? doc.headerKeys : [],
+          rowData: Array.isArray(doc.rowData) ? doc.rowData : [],
+        }];
+
+    for (const ws of worksheets) {
+      const wsPusk = String(ws.puskesmas ?? "").replace(/^:\s*/, "").trim();
+      if (puskesmasFilter && wsPusk.toUpperCase() !== puskesmasFilter.toUpperCase()) continue;
+      if (!detectedPuskesmas) detectedPuskesmas = wsPusk;
+
+      const hk = Array.isArray(ws.headerKeys) ? ws.headerKeys : [];
+      const rd = Array.isArray(ws.rowData) ? ws.rowData : [];
+      if (hk.length > 0 && rd.length > 0) {
+        monthRows[mIdx].push({ rows: rd, headerKeys: hk, puskesmas: wsPusk });
+      }
+    }
+  }
+
+  for (let m = 0; m < 12; m++) {
+    const entries = monthRows[m];
+    if (entries.length === 0) continue;
+    // Merge all rows for this month
+    const allRows = entries.flatMap(e => e.rows);
+    const hk = entries[0].headerKeys;
+    const pusk = entries[0].puskesmas || detectedPuskesmas;
+
+    monthSheetsA[m] = { bulanTahun: "", puskesmas: pusk, rows: allRows, headerKeys: hk };
+    monthSheetsB[m] = { bulanTahun: "", puskesmas: pusk, rows: allRows, headerKeys: hk };
+  }
+
+  return {
+    monthSheetsA,
+    monthSheetsB,
+    kabupaten: detectedKabupaten,
+    puskesmas: detectedPuskesmas,
+  };
+}
+
+// ─── Annual Report A ──────────────────────────────────────────────────────────
+export const downloadAnnualReportA = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { year } = req.params;
+    if (!/^\d{4}$/.test(year)) {
+      res.status(400).json({ message: "Tahun tidak valid." });
+      return;
+    }
+    const puskesmasFilter = String(req.query.puskesmas ?? "").trim();
+    const kabupatenFilter = String(req.query.kabupaten ?? "").trim();
+
+    const { monthSheetsA, kabupaten, puskesmas } = await buildMonthSheetsForYear(year, puskesmasFilter);
+
+    const buffer = generateAnnualReportA({
+      year,
+      kabupaten: kabupatenFilter || kabupaten || "-",
+      puskesmas: puskesmas || "-",
+      monthSheets: monthSheetsA,
+    });
+
+    const safePusk = (puskesmas || "Puskesmas").replace(/\s+/g, "_");
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Laporan_A_${safePusk}_${year}.xlsx"`);
+    res.send(buffer);
+  } catch (e) {
+    console.error("downloadAnnualReportA error:", e);
+    res.status(500).json({ message: "Server error generating annual report A." });
+  }
+};
+
+// ─── Annual Report B ──────────────────────────────────────────────────────────
+export const downloadAnnualReportB = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { year } = req.params;
+    if (!/^\d{4}$/.test(year)) {
+      res.status(400).json({ message: "Tahun tidak valid." });
+      return;
+    }
+    const puskesmasFilter = String(req.query.puskesmas ?? "").trim();
+    const kabupatenFilter = String(req.query.kabupaten ?? "").trim();
+
+    const { monthSheetsB, kabupaten, puskesmas } = await buildMonthSheetsForYear(year, puskesmasFilter);
+
+    const buffer = generateAnnualReportB({
+      year,
+      kabupaten: kabupatenFilter || kabupaten || "-",
+      puskesmas: puskesmas || "-",
+      monthSheets: monthSheetsB,
+    });
+
+    const safePusk = (puskesmas || "Puskesmas").replace(/\s+/g, "_");
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Laporan_B_${safePusk}_${year}.xlsx"`);
+    res.send(buffer);
+  } catch (e) {
+    console.error("downloadAnnualReportB error:", e);
+    res.status(500).json({ message: "Server error generating annual report B." });
+  }
 };

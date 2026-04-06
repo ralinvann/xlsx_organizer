@@ -14,6 +14,6 @@ router.post("/login", login);
 router.get("/me", requireAuth, getCurrentUser);
 
 // Logout (clears cookie)
-router.post("/logout", logout);
+router.post("/logout", requireAuth, logout);
 
 export default router;

@@ -1,4 +1,3 @@
-// UploadPage.tsx
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -6,134 +5,129 @@ import { Upload, FileText, CheckCircle } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 
-type UploadPageProps = {
-  onNavigate?: (page: string, state?: any) => void;
-};
-
+type UploadPageProps = { onNavigate?: (page: string, state?: any) => void };
 type MetaPair = { key: string; value: string };
 
 type UploadPayload = {
-  kabupaten: string;
-  puskesmas: string;
-  bulanTahun: string;
-  metaPairs: MetaPair[];
-
-  rows: any[];
-  headerKeys: string[];
-  headerLabels: string[];
-  headerOrder: string[];
-
-  fileName?: string;
-  sourceSheetName?: string;
-  headerBlock?: {
-    start: number;
-    end: number;
-    rows: any[][];
-    merges: any[];
-  };
+  kabupaten: string; puskesmas: string; bulanTahun: string; metaPairs: MetaPair[];
+  rows: any[]; headerKeys: string[]; headerLabels: string[]; headerOrder: string[];
+  fileName?: string; sourceSheetName?: string;
+  headerBlock?: { start: number; end: number; rows: any[][]; merges: any[] };
 };
 
-type WorksheetData = UploadPayload & {
-  worksheetName: string;
-};
+type WorksheetData = UploadPayload & { worksheetName: string };
+type MultiWorksheetPayload = { fileName?: string; worksheets: WorksheetData[]; activeWorksheetIndex?: number };
 
-type MultiWorksheetPayload = {
-  fileName?: string;
-  worksheets: WorksheetData[];
-  activeWorksheetIndex?: number;
-};
+const btnAnim = "transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]";
+const PENDING_WORKSHEETS_KEY = "uploadPendingWorksheets";
+const SELECTED_WORKSHEET_INDEX_KEY = "uploadSelectedWorksheetIndex";
 
 export function UploadPage({ onNavigate }: UploadPageProps) {
   const [uploadStep, setUploadStepState] = useState<number>(1);
-  const [dragActive, setDragActive] = useState<boolean>(false);
+  const [dragActive, setDragActive] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [pendingWorksheets, setPendingWorksheets] = useState<WorksheetData[]>([]);
+  const [selectedWorksheetIndex, setSelectedWorksheetIndex] = useState<number | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const setUploadStep = (s: number) => {
     setUploadStepState(s);
+    try { sessionStorage.setItem("uploadStep", String(s)); } catch {}
+  };
+
+  const clearWorksheetSelectionState = () => {
+    setPendingWorksheets([]);
+    setSelectedWorksheetIndex(null);
     try {
-      sessionStorage.setItem("uploadStep", String(s));
-    } catch (e) {
-      console.warn("persist uploadStep failed", e);
-    }
+      sessionStorage.removeItem(PENDING_WORKSHEETS_KEY);
+      sessionStorage.removeItem(SELECTED_WORKSHEET_INDEX_KEY);
+    } catch {}
   };
 
   useEffect(() => {
     try {
-      const persistedStep = sessionStorage.getItem("uploadStep");
-      if (persistedStep) setUploadStepState(Number(persistedStep));
-      const persistedName = sessionStorage.getItem("uploadFileName");
-      if (persistedName) setFileName(persistedName);
-    } catch (e) {
-      console.warn("failed reading persisted upload state", e);
-    }
+      const ps = sessionStorage.getItem("uploadStep"); if (ps) setUploadStepState(Number(ps));
+      const pn = sessionStorage.getItem("uploadFileName"); if (pn) setFileName(pn);
+      const pending = sessionStorage.getItem(PENDING_WORKSHEETS_KEY);
+      if (pending) {
+        const parsed = JSON.parse(pending);
+        if (Array.isArray(parsed)) setPendingWorksheets(parsed);
+      }
+      const selected = sessionStorage.getItem(SELECTED_WORKSHEET_INDEX_KEY);
+      if (selected !== null) setSelectedWorksheetIndex(Number(selected));
+    } catch {}
   }, []);
 
   useEffect(() => {
-    const handler = (e: Event) => {
+    try {
+      if (pendingWorksheets.length > 0) {
+        sessionStorage.setItem(PENDING_WORKSHEETS_KEY, JSON.stringify(pendingWorksheets));
+      } else {
+        sessionStorage.removeItem(PENDING_WORKSHEETS_KEY);
+      }
+    } catch {}
+  }, [pendingWorksheets]);
+
+  useEffect(() => {
+    try {
+      if (selectedWorksheetIndex !== null) {
+        sessionStorage.setItem(SELECTED_WORKSHEET_INDEX_KEY, String(selectedWorksheetIndex));
+      } else {
+        sessionStorage.removeItem(SELECTED_WORKSHEET_INDEX_KEY);
+      }
+    } catch {}
+  }, [selectedWorksheetIndex]);
+
+  useEffect(() => {
+    const handler = () => {
       setUploadStep(1);
       setFileName(null);
       setFileError(null);
+      clearWorksheetSelectionState();
       try {
         sessionStorage.removeItem("previewData");
-      } catch (err) {}
+        sessionStorage.removeItem("uploadFileName");
+        sessionStorage.removeItem("uploadStep");
+      } catch {}
     };
-
-    window.addEventListener("upload-reset", handler as EventListener);
-    return () => window.removeEventListener("upload-reset", handler as EventListener);
+    window.addEventListener("upload-reset", handler);
+    return () => window.removeEventListener("upload-reset", handler);
   }, []);
 
+  const proceedToPreview = (dataToSave: UploadPayload) => {
+    clearWorksheetSelectionState();
+    setUploadStep(2);
+    try { sessionStorage.setItem("previewData", JSON.stringify(dataToSave)); } catch {}
+    setTimeout(() => {
+      setUploadStep(3);
+      onNavigate?.("preview", { data: dataToSave });
+      try { window.dispatchEvent(new CustomEvent("preview-ready")); } catch {}
+    }, 700);
+  };
+
   const steps = [
-    {
-      number: 1,
-      title: "Pilih File Data",
-      description: "Upload file Excel atau CSV berisi data kesehatan lansia",
-      status:
-        uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending",
-    },
-    {
-      number: 2,
-      title: "Validasi Data",
-      description: "Sistem akan memeriksa format dan kelengkapan data",
-      status:
-        uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending",
-    },
-    {
-      number: 3,
-      title: "Konfirmasi Import",
-      description: "Review data sebelum disimpan ke sistem",
-      status:
-        uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending",
-    },
+    { number: 1, title: "Pilih File Data", description: "Upload file Excel atau CSV berisi data kesehatan lansia", status: uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending" },
+    { number: 2, title: "Validasi Data", description: "Sistem akan memeriksa format dan kelengkapan data", status: uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending" },
+    { number: 3, title: "Konfirmasi Import", description: "Review data sebelum disimpan ke sistem", status: uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending" },
   ];
 
   const handleDrag = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
     if (e.type === "dragleave") setDragActive(false);
   };
 
   const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-  function detectHeaderRow(arr: Array<any[]>, maxScanRows = 12, minNonEmptyCells = 3) {
+  function detectHeaderRow(arr: any[][], maxScanRows = 12, minNonEmptyCells = 3) {
     const rowsToCheck = Math.min(maxScanRows, arr.length);
-    let bestIdx = 0;
-    let bestCount = -1;
+    let bestIdx = 0, bestCount = -1;
     for (let i = 0; i < rowsToCheck; i++) {
-      const row = arr[i] || [];
-      const nonEmpty = row.reduce(
-        (acc, c) => acc + (c !== null && c !== undefined && String(c).trim() !== "" ? 1 : 0),
-        0
-      );
-      if (nonEmpty > bestCount) {
-        bestCount = nonEmpty;
-        bestIdx = i;
-      }
+      const nonEmpty = (arr[i] || []).reduce((acc: number, c: any) => acc + (c !== null && c !== undefined && String(c).trim() !== "" ? 1 : 0), 0);
+      if (nonEmpty > bestCount) { bestCount = nonEmpty; bestIdx = i; }
     }
-    if (bestCount < minNonEmptyCells) return 0;
-    return bestIdx;
+    return bestCount < minNonEmptyCells ? 0 : bestIdx;
   }
 
   function normalizeHeaders(raw: any[]) {
@@ -141,376 +135,187 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
     return raw.map((h, i) => {
       const s = String(h ?? "").trim();
       const base = s === "" ? `column_${i + 1}` : s;
-      let key = base
-        .normalize("NFKD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^\w\s\-]/g, "")
-        .trim()
-        .replace(/\s+/g, "_")
-        .replace(/-+/g, "_")
-        .toLowerCase();
+      let key = base.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s\-]/g, "").trim().replace(/\s+/g, "_").replace(/-+/g, "_").toLowerCase();
       if (!key) key = `column_${i + 1}`;
-      if (seen[key]) {
-        seen[key] += 1;
-        key = `${key}_${seen[key]}`;
-      } else {
-        seen[key] = 1;
-      }
+      if (seen[key]) { seen[key] += 1; key = `${key}_${seen[key]}`; } else seen[key] = 1;
       return key;
     });
   }
 
-  function cleanCell(v: any) {
-    return String(v ?? "").replace(/\s+/g, " ").trim();
-  }
-
-  function isStopMarkerB(cellB: any) {
-    const s = cleanCell(cellB).toLowerCase();
-    return s.startsWith("diketahui");
-  }
+  function cleanCell(v: any) { return String(v ?? "").replace(/\s+/g, " ").trim(); }
+  function isStopMarkerB(cellB: any) { return cleanCell(cellB).toLowerCase().startsWith("diketahui"); }
 
   function readMetaPairsFromAoA(rawAoA: any[][]) {
-    const pairsSpec = [
-      { row: 1, keyCol: 1, valCol: 2 },
-      { row: 2, keyCol: 1, valCol: 2 },
-      { row: 3, keyCol: 1, valCol: 2 },
-    ];
-
     const metaPairs: MetaPair[] = [];
-    for (const p of pairsSpec) {
+    for (const p of [{ row: 1, keyCol: 1, valCol: 2 }, { row: 2, keyCol: 1, valCol: 2 }, { row: 3, keyCol: 1, valCol: 2 }]) {
       const key = cleanCell(rawAoA?.[p.row]?.[p.keyCol]);
       const value = cleanCell(rawAoA?.[p.row]?.[p.valCol]);
       if (key && value) metaPairs.push({ key, value });
     }
-
     const metaMap: Record<string, string> = {};
     metaPairs.forEach(({ key, value }) => {
       const k = key.toLowerCase();
       if (k.includes("kabupaten")) metaMap.kabupaten = value;
       else if (k.includes("puskesmas")) metaMap.puskesmas = value;
-      else if (k.includes("bulan")) {
-        let cleanedValue = value
-          .replace(/^:\s*/, "") // Remove leading ": " or ":"
-          .replace(/\s*\/\s*/g, " ") // Replace "/" with spaces
-          .trim();
-        metaMap.bulanTahun = cleanedValue;
-      }
+      else if (k.includes("bulan")) metaMap.bulanTahun = value.replace(/^:\s*/, "").replace(/\s*\/\s*/g, " ").trim();
     });
-
     return { metaPairs, metaMap };
   }
 
-  function findStopRowIndex(rawAoA: any[][], startScanRowIdx: number) {
-    for (let r = startScanRowIdx; r < rawAoA.length; r++) {
-      const colB = rawAoA?.[r]?.[1]; // Column B
-      if (isStopMarkerB(colB)) return r;
-    }
-    return rawAoA.length;
-  }
-
   function fillMergedCellsFromSheet(ws: XLSX.WorkSheet, aoa: any[][]) {
-    const merges = ws && (ws["!merges"] as any[]) ? (ws["!merges"] as any[]) : [];
-    if (!merges.length) return;
-
+    const merges = ws?.["!merges"] as any[] || [];
     for (const m of merges) {
-      const s = m.s; // { r: startRow, c: startCol }
-      const e = m.e; // { r: endRow, c: endCol }
-
-      // ensure aoa has enough rows
-      while (aoa.length <= e.r) aoa.push([]);
-
-      // Try to get value from worksheet cell (top-left) first, fallback to aoa
-      const startAddr = XLSX.utils.encode_cell({ r: s.r, c: s.c });
+      while (aoa.length <= m.e.r) aoa.push([]);
+      const startAddr = XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c });
       const startCell = ws[startAddr];
-      const startVal =
-        startCell && typeof startCell.v !== "undefined" ? startCell.v : (aoa[s.r] && aoa[s.r][s.c]) ?? "";
-
-      for (let r = s.r; r <= e.r; r++) {
+      const startVal = startCell && typeof startCell.v !== "undefined" ? startCell.v : aoa[m.s.r]?.[m.s.c] ?? "";
+      for (let r = m.s.r; r <= m.e.r; r++) {
         aoa[r] = aoa[r] || [];
-        for (let c = s.c; c <= e.c; c++) {
-          // if the target cell is empty or undefined, fill with startVal
-          const current = typeof aoa[r][c] !== "undefined" ? aoa[r][c] : "";
-          if (current === "" || current === null || typeof current === "undefined") {
-            aoa[r][c] = startVal;
-          }
+        for (let c = m.s.c; c <= m.e.c; c++) {
+          const current = aoa[r][c];
+          if (current === "" || current === null || current === undefined) aoa[r][c] = startVal;
         }
       }
     }
   }
 
-  // Process a single worksheet and return UploadPayload
   function processWorksheet(workbook: XLSX.WorkBook, sheetName: string): UploadPayload | null {
     try {
       const worksheet = workbook.Sheets[sheetName];
       if (!worksheet) return null;
-
-      // Full sheet AoA
       const rawAoA: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-
-      // apply merged-cell propagation so merged ranges show the top-left value in all cells
       fillMergedCellsFromSheet(worksheet, rawAoA);
-
-      // Meta pairs: B2/C2, B3/C3, B4/C4
       const { metaPairs, metaMap } = readMetaPairsFromAoA(rawAoA);
-
-      // Data stop marker
-      const visibleStartRow = 5; // hide rows 1..5 (1-based). zero-based index 5 is row 6 in Excel.
-      const stopRowIdx = findStopRowIndex(rawAoA, visibleStartRow);
-
-      // Work only inside [visibleStartRow..stop)
+      const visibleStartRow = 5;
+      let stopRowIdx = rawAoA.length;
+      for (let r = visibleStartRow; r < rawAoA.length; r++) {
+        if (isStopMarkerB(rawAoA[r]?.[1])) { stopRowIdx = r; break; }
+      }
       const sliced = rawAoA.slice(visibleStartRow, stopRowIdx);
+      const allMerges = (worksheet["!merges"] as any[]) || [];
 
-      // Inspect merged ranges to detect a multi-row header block (if present)
-      const allMerges = worksheet["!merges"] || [];
-      // only consider merges that start within the visible header area (after hidden rows)
-      const mergesInTop = (allMerges as any[]).filter((m) => m && typeof m.s?.r === "number" && m.s.r >= visibleStartRow && m.s.r < stopRowIdx);
-
-      let headerStart = -1;
-      let headerEnd = -1;
-      if (mergesInTop.length > 0) {
-        headerStart = Math.min(...mergesInTop.map((m) => m.s.r));
-        headerEnd = Math.max(...mergesInTop.map((m) => m.e.r));
-        // guard: keep header block inside visible range
-        if (headerStart < visibleStartRow) headerStart = visibleStartRow;
-        if (headerEnd >= stopRowIdx) headerEnd = stopRowIdx - 1;
-      } else {
-        // fallback: single-row header detection (previous behaviour)
-        const localHeaderOffset = detectHeaderRow(sliced, 20, 3);
-        headerStart = visibleStartRow + localHeaderOffset;
-        headerEnd = headerStart;
-      }
-
-      // bottom-most header row is the last row of the header block
-      const bottomHeaderRowIndex = headerEnd;
-
-      const rawHeaderRow = rawAoA[bottomHeaderRowIndex] ?? [];
-
-      // Trim leading empty columns so header/merge columns align to visible data columns
-      const firstNonEmptyCol = rawHeaderRow.findIndex((c: any) => cleanCell(c) !== "");
-      const leftCol = firstNonEmptyCol >= 0 ? firstNonEmptyCol : 0;
-
-      const trimmedHeaderRow = (rawHeaderRow || []).slice(leftCol);
-      const headerKeys = normalizeHeaders(trimmedHeaderRow);
-      const headerLabels: string[] = trimmedHeaderRow.map((c: any) => cleanCell(c));
-      const headerOrder = [...headerKeys];
-
-      // Body rows: from (bottomHeaderRowIndex+1) to stopRowIdx (exclusive)
-      const bodyAoA = rawAoA.slice(bottomHeaderRowIndex + 1, stopRowIdx);
-
-      // Convert AoA to objects using headerKeys
-      const cleanedRows = bodyAoA
-        .filter((rowArr) => (rowArr || []).some((x) => cleanCell(x) !== "")) // skip empty row
-        .map((rowArr, idx) => {
-          const obj: Record<string, any> = {};
-          headerKeys.forEach((k, i) => {
-            const v = rowArr?.[leftCol + i] ?? "";
-            obj[k] = typeof v === "string" ? v.trim() : v;
+      const buildLayout = (useMerges: boolean) => {
+        let headerStart = -1, headerEnd = -1;
+        let mergesForHeader: any[] = [];
+        if (useMerges && allMerges.length > 0) {
+          const headerBandEnd = Math.min(stopRowIdx - 1, visibleStartRow + 12);
+          mergesForHeader = allMerges.filter((m: any) => m?.s?.r >= visibleStartRow && m.s.r <= headerBandEnd && m.e.r <= headerBandEnd);
+          if (mergesForHeader.length > 0) {
+            headerStart = Math.max(visibleStartRow, Math.min(...mergesForHeader.map((m: any) => m.s.r)));
+            headerEnd = Math.min(stopRowIdx - 1, Math.max(...mergesForHeader.map((m: any) => m.e.r)));
+          }
+        }
+        if (headerStart === -1 || headerEnd === -1 || headerEnd >= stopRowIdx - 1) {
+          const localOffset = detectHeaderRow(sliced, 40, 3);
+          headerStart = visibleStartRow + localOffset;
+          headerEnd = headerStart;
+          if (!useMerges) mergesForHeader = [];
+        }
+        const rawHeaderRow = rawAoA[headerEnd] ?? [];
+        const firstNonEmptyCol = rawHeaderRow.findIndex((c: any) => cleanCell(c) !== "");
+        const leftCol = firstNonEmptyCol >= 0 ? firstNonEmptyCol : 0;
+        const trimmedHeaderRow = rawHeaderRow.slice(leftCol);
+        const headerKeys = normalizeHeaders(trimmedHeaderRow);
+        const headerLabels = trimmedHeaderRow.map((c: any) => cleanCell(c));
+        const bodyAoA = rawAoA.slice(headerEnd + 1, stopRowIdx);
+        const cleanedRows = bodyAoA
+          .filter((rowArr) => rowArr.some((x: any) => cleanCell(x) !== ""))
+          .map((rowArr, idx) => {
+            const obj: Record<string, any> = {};
+            headerKeys.forEach((k, i) => { const v = rowArr?.[leftCol + i] ?? ""; obj[k] = typeof v === "string" ? v.trim() : v; });
+            obj.id = `row_${Date.now()}_${idx + 1}`;
+            return obj;
           });
-          obj.id = `row_${Date.now()}_${idx + 1}`;
-          return obj;
-        });
-
-      if (cleanedRows.length === 0) {
-        return null;
-      }
-
-      // normalize merges to the trimmed-left column coordinates so preview can render using local indices
-      const rawHeaderBlockRows = rawAoA.slice(headerStart, headerEnd + 1);
-      const normalizedMerges = (mergesInTop || []).map((m: any) => ({
-        s: { r: m.s.r - headerStart, c: m.s.c - leftCol },
-        e: { r: m.e.r - headerStart, c: m.e.c - leftCol },
-      }));
-
-      const headerBlock = {
-        start: headerStart,
-        end: headerEnd,
-        rows: rawHeaderBlockRows.map((r) => (r || []).slice(leftCol)),
-        merges: normalizedMerges,
+        const rawHeaderBlockRows = rawAoA.slice(headerStart, headerEnd + 1);
+        const normalizedMerges = mergesForHeader.map((m: any) => ({ s: { r: m.s.r - headerStart, c: m.s.c - leftCol }, e: { r: m.e.r - headerStart, c: m.e.c - leftCol } }));
+        return { cleanedRows, headerKeys, headerLabels, headerOrder: [...headerKeys], headerBlock: { start: headerStart, end: headerEnd, rows: rawHeaderBlockRows.map((r: any[]) => r.slice(leftCol)), merges: normalizedMerges } };
       };
 
-      const payload: UploadPayload = {
-        kabupaten: metaMap.kabupaten ?? "",
-        puskesmas: metaMap.puskesmas ?? "",
-        bulanTahun: metaMap.bulanTahun ?? "",
-        metaPairs,
+      let layout = buildLayout(true);
+      if (!layout.cleanedRows?.length) layout = buildLayout(false);
+      if (!layout.cleanedRows?.length) return null;
 
-        rows: cleanedRows,
-        headerKeys,
-        headerLabels,
-        headerOrder,
-
-        fileName: undefined,
-        sourceSheetName: sheetName,
-        headerBlock,
-      };
-
-      return payload;
-    } catch (err) {
-      console.warn(`Error processing sheet "${sheetName}":`, err);
-      return null;
-    }
+      return { kabupaten: metaMap.kabupaten ?? "", puskesmas: metaMap.puskesmas ?? "", bulanTahun: metaMap.bulanTahun ?? "", metaPairs, rows: layout.cleanedRows, headerKeys: layout.headerKeys, headerLabels: layout.headerLabels, headerOrder: layout.headerOrder, sourceSheetName: sheetName, headerBlock: layout.headerBlock };
+    } catch { return null; }
   }
 
   const handleFile = (file: File) => {
     setFileError(null);
-
-    if (file.size > MAX_FILE_SIZE) {
-      setFileError("File terlalu besar. Maksimum 10MB.");
-      return;
-    }
-
+    clearWorksheetSelectionState();
+    if (file.size > MAX_FILE_SIZE) { setFileError("File terlalu besar. Maksimum 10MB."); return; }
     setFileName(file.name);
-    try {
-      sessionStorage.setItem("uploadFileName", file.name);
-    } catch (e) {
-      console.warn("persist filename failed", e);
-    }
-
+    try { sessionStorage.setItem("uploadFileName", file.name); } catch {}
     const reader = new FileReader();
-
-    reader.onerror = (err) => {
-      console.error("FileReader error", err);
-      setFileError("Failed reading file. Try again.");
-    };
-
+    reader.onerror = () => setFileError("Gagal membaca file.");
     reader.onload = (ev) => {
       try {
-        const arrayBuffer = ev.target?.result;
-        if (!arrayBuffer) throw new Error("Empty file result");
-
-        const data = new Uint8Array(arrayBuffer as ArrayBuffer);
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
-
-        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-          throw new Error("No sheets found in workbook");
-        }
-
-        // Process all sheets
+        if (!workbook.SheetNames?.length) throw new Error("No sheets");
         const processedSheets: WorksheetData[] = [];
-        let hasValidSheets = false;
-
-        for (const sheetName of workbook.SheetNames) {
-          const payload = processWorksheet(workbook, sheetName);
-          if (payload) {
-            processedSheets.push({
-              ...payload,
-              worksheetName: sheetName,
-            });
-            hasValidSheets = true;
-          }
+        for (const sn of workbook.SheetNames) {
+          const p = processWorksheet(workbook, sn);
+          if (p) processedSheets.push({ ...p, worksheetName: sn });
         }
-
-        if (!hasValidSheets || processedSheets.length === 0) {
-          setFileError("Tidak ada row data yang terbaca di semua sheet (cek format dan posisi tabel).");
+        if (!processedSheets.length) { setFileError("Tidak ada data terbaca."); return; }
+        if (processedSheets.length === 1) {
+          proceedToPreview({ ...processedSheets[0], fileName: file.name });
           return;
         }
 
-        // Decide: single sheet or multi-sheet payload
-        let dataToSave: UploadPayload | MultiWorksheetPayload;
-
-        if (processedSheets.length === 1) {
-          // Single sheet: save as regular UploadPayload
-          dataToSave = {
-            ...processedSheets[0],
-            fileName: file.name,
-          };
-        } else {
-          // Multiple sheets: save as MultiWorksheetPayload
-          dataToSave = {
-            fileName: file.name,
-            worksheets: processedSheets,
-            activeWorksheetIndex: 0,
-          };
-        }
-
-        // Step -> persist quickly
+        setPendingWorksheets(processedSheets);
+        setSelectedWorksheetIndex(0);
         setUploadStep(2);
-
-        try {
-          sessionStorage.setItem("previewData", JSON.stringify(dataToSave));
-        } catch (err) {
-          console.warn("sessionStorage write failed", err);
-        }
-
-        // simulate validation then navigate to preview
-        setTimeout(() => {
-          setUploadStep(3);
-
-          if (typeof onNavigate === "function") {
-            onNavigate("preview", { data: dataToSave });
-          }
-
-          try {
-            window.dispatchEvent(new CustomEvent("preview-ready", { detail: { timestamp: Date.now() } }));
-          } catch (err) {
-            console.warn("dispatch preview-ready failed", err);
-          }
-        }, 700);
-      } catch (err: any) {
-        console.error("Parsing error:", err);
-        setFileError("Error parsing file. Make sure it's a valid Excel/CSV file.");
-      }
+      } catch { setFileError("Error parsing file."); }
     };
-
     reader.readAsArrayBuffer(file);
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (!file) {
-      setFileError("No file dropped");
+  const handleConfirmWorksheetSelection = () => {
+    if (selectedWorksheetIndex === null || !pendingWorksheets[selectedWorksheetIndex]) {
+      setFileError("Pilih satu worksheet terlebih dahulu.");
       return;
     }
-    handleFile(file);
+
+    const selectedWorksheet = pendingWorksheets[selectedWorksheetIndex];
+    proceedToPreview({ ...selectedWorksheet, fileName: fileName ?? undefined });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); e.stopPropagation(); setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
     if (file) handleFile(file);
   };
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-6 space-y-6">
       <div>
-        <h2 className="text-3xl font-semibold">Upload Document</h2>
-        <p className="text-xl text-muted-foreground mt-2">Import data kesehatan lansia ke dalam sistem</p>
-        {fileName && (
-          <div className="text-sm text-muted-foreground mt-2">
-            File terakhir: <strong>{fileName}</strong>
-          </div>
-        )}
+        <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Upload Document</h2>
+        <p className="text-sm text-muted-foreground mt-1">Import data kesehatan lansia ke dalam sistem</p>
+        {fileName && <div className="text-xs text-muted-foreground mt-1">File terakhir: <strong>{fileName}</strong></div>}
       </div>
 
-      {/* Progress Steps */}
-      <Card className="shadow-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Langkah-langkah Upload</CardTitle>
+      {/* Steps */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle style={{ fontSize: "1.125rem" }}>Langkah-langkah Upload</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-6">
+          <div className="space-y-4">
             {steps.map((step) => (
-              <div key={step.number} className="flex items-start gap-4">
-                <div
-                  className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold ${
-                    step.status === "completed"
-                      ? "bg-green-100 text-green-700"
-                      : step.status === "active"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  {step.status === "completed" ? <CheckCircle className="w-6 h-6" /> : step.number}
+              <div key={step.number} className="flex items-start gap-3">
+                <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm ${
+                  step.status === "completed" ? "bg-green-100 text-green-700" : step.status === "active" ? "bg-foreground text-background" : "bg-gray-100 text-gray-500"
+                }`} style={{ fontWeight: 600 }}>
+                  {step.status === "completed" ? <CheckCircle className="w-5 h-5" /> : step.number}
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold mb-2">{step.title}</h3>
-                  <p className="text-lg text-muted-foreground">{step.description}</p>
+                  <h3 className="text-sm" style={{ fontWeight: 600 }}>{step.title}</h3>
+                  <p className="text-xs text-muted-foreground">{step.description}</p>
                 </div>
                 <Badge
-                  variant={step.status === "completed" ? "default" : step.status === "active" ? "secondary" : "outline"}
-                  className="text-sm px-3 py-1"
+                  variant={step.status === "completed" ? "secondary" : step.status === "active" ? "outline" : "outline"}
+                  className="text-xs"
                 >
                   {step.status === "completed" ? "Selesai" : step.status === "active" ? "Aktif" : "Menunggu"}
                 </Badge>
@@ -521,79 +326,107 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       </Card>
 
       {/* Upload Area */}
-      <Card className="shadow-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Area Upload File</CardTitle>
+      <Card className="shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle style={{ fontSize: "1.125rem" }}>Area Upload File</CardTitle>
         </CardHeader>
         <CardContent>
           <div
-            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-              dragActive ? "border-primary bg-primary/5" : "border-border bg-muted/30"
-            }`}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors ${dragActive ? "border-foreground bg-muted" : "border-border bg-muted/30"}`}
+            onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
           >
-            <div className="flex flex-col items-center space-y-4">
-              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-                <Upload className="w-8 h-8 text-primary" />
+            <div className="flex flex-col items-center space-y-3">
+              <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center">
+                <Upload className="w-7 h-7 text-foreground" />
               </div>
               <div>
-                <h3 className="text-2xl font-semibold mb-2">Seret file ke sini atau klik untuk browse</h3>
-                <p className="text-lg text-muted-foreground mb-4">
-                  Format yang didukung: .xlsx, .csv, .xls (Maksimal 10MB)
-                </p>
+                <h3 style={{ fontSize: "1.125rem", fontWeight: 600 }} className="mb-1">Seret file ke sini atau klik untuk browse</h3>
+                <p className="text-sm text-muted-foreground mb-3">.xlsx, .csv, .xls (Maks 10MB)</p>
               </div>
-              <Button size="lg" className="h-12 px-8 text-lg" onClick={() => fileInputRef.current?.click()}>
-                <FileText className="w-5 h-5 mr-2" />
+              <Button onClick={() => fileInputRef.current?.click()} className={`gap-2 ${btnAnim}`}>
+                <FileText className="w-4 h-4" />
                 Pilih File
               </Button>
-              <input ref={fileInputRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={handleFileChange} />
+              <input ref={fileInputRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </div>
-            {fileError && <div className="mt-4 text-red-600 text-center">{fileError}</div>}
+            {fileError && <div className="mt-3 text-red-600 text-center text-sm">{fileError}</div>}
           </div>
 
           {uploadStep > 1 && (
-            <div className="mt-6 p-4 bg-secondary rounded-lg">
-              <div className="flex items-center gap-3">
-                {uploadStep === 2 ? (
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                ) : (
-                  <CheckCircle className="w-6 h-6 text-green-600" />
-                )}
-                <span className="text-lg">{uploadStep === 2 ? "Memproses file..." : "File berhasil divalidasi"}</span>
+            <div className="mt-4 p-3 bg-secondary rounded-lg">
+              <div className="flex items-center gap-2">
+                {uploadStep === 2 ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-foreground"></div> : <CheckCircle className="w-5 h-5 text-green-600" />}
+                <span className="text-sm">{uploadStep === 2 ? "Memproses file..." : "File berhasil divalidasi"}</span>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
 
+      {pendingWorksheets.length > 1 && (
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle style={{ fontSize: "1.125rem" }}>Pilih Worksheet Yang Akan Diupload</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                File ini memiliki beberapa worksheet. Pilih tepat satu worksheet untuk dilanjutkan ke preview dan upload.
+              </p>
+
+              <div className="grid gap-3">
+                {pendingWorksheets.map((worksheet, idx) => {
+                  const isSelected = selectedWorksheetIndex === idx;
+                  return (
+                    <button
+                      key={worksheet.worksheetName}
+                      type="button"
+                      onClick={() => setSelectedWorksheetIndex(idx)}
+                      className={`w-full text-left border rounded-lg p-4 transition-colors ${isSelected ? "border-foreground bg-muted" : "border-border bg-background hover:bg-muted/40"}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm" style={{ fontWeight: 600 }}>{worksheet.worksheetName}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Puskesmas: {worksheet.puskesmas || "-"} | Bulan/Tahun: {worksheet.bulanTahun || "-"}
+                          </div>
+                        </div>
+                        <Badge variant={isSelected ? "secondary" : "outline"}>
+                          {isSelected ? "Dipilih" : "Pilih"}
+                        </Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleConfirmWorksheetSelection} className={btnAnim}>
+                  Lanjutkan Dengan Worksheet Ini
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Guidelines */}
-      <Card className="shadow-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Panduan Format Data</CardTitle>
+      <Card className="shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle style={{ fontSize: "1.125rem" }}>Panduan Format Data</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-6">
             <div>
-              <h4 className="text-xl font-semibold mb-3">Kolom Wajib:</h4>
-              <ul className="space-y-2 text-lg">
-                <li>• Nama Lengkap</li>
-                <li>• Nomor KTP/NIK</li>
-                <li>• Tanggal Lahir</li>
-                <li>• Alamat</li>
-                <li>• Nomor Telepon</li>
+              <h4 className="text-sm mb-2" style={{ fontWeight: 600 }}>Kolom Wajib:</h4>
+              <ul className="space-y-1 text-sm text-muted-foreground">
+                <li>&#8226; Nama Lengkap</li><li>&#8226; Nomor KTP/NIK</li><li>&#8226; Tanggal Lahir</li><li>&#8226; Alamat</li><li>&#8226; Nomor Telepon</li>
               </ul>
             </div>
             <div>
-              <h4 className="text-xl font-semibold mb-3">Data Kesehatan:</h4>
-              <ul className="space-y-2 text-lg">
-                <li>• Tekanan Darah</li>
-                <li>• Gula Darah</li>
-                <li>• Berat & Tinggi Badan</li>
-                <li>• Riwayat Penyakit</li>
-                <li>• Obat yang Dikonsumsi</li>
+              <h4 className="text-sm mb-2" style={{ fontWeight: 600 }}>Data Kesehatan:</h4>
+              <ul className="space-y-1 text-sm text-muted-foreground">
+                <li>&#8226; Tekanan Darah</li><li>&#8226; Gula Darah</li><li>&#8226; Berat & Tinggi Badan</li><li>&#8226; Riwayat Penyakit</li><li>&#8226; Obat yang Dikonsumsi</li>
               </ul>
             </div>
           </div>

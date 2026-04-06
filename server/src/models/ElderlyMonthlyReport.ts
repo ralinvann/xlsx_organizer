@@ -24,6 +24,7 @@ const WorksheetDataSchema = new Schema(
   {
     worksheetName: { type: String, required: true, trim: true },
     puskesmas: { type: String, required: true, trim: true },
+    desa: { type: String, trim: true },
     kabupaten: { type: String, required: true, trim: true },
     bulanTahun: { type: String, required: true, trim: true },
     metaPairs: [
@@ -52,6 +53,7 @@ const ElderlyMonthlyReportSchema = new Schema(
 
     // Legacy single worksheet fields (for backward compatibility)
     puskesmas: { type: String, trim: true },
+    desa: { type: String, trim: true },
     metaPairs: [
       {
         key: { type: String, required: true, trim: true },
@@ -65,6 +67,7 @@ const ElderlyMonthlyReportSchema = new Schema(
 
     fileName: { type: String, trim: true },
     generatedReportPath: { type: String, trim: true },
+    submittedAt: { type: Date, default: Date.now },
     status: { type: String, enum: ["draft", "imported", "generated"], default: "imported" },
 
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: false },

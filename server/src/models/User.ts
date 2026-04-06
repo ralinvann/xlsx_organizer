@@ -8,6 +8,8 @@ export interface IUser extends Document {
   password: string;
   role: "superadmin" | "admin" | "officer";
   profilePicture?: string;
+  phone?: string;
+  workLocation?: string;
   lastLoginAt?: Date;
   lastLoginIP?: string;
   refreshTokens?: Array<{
@@ -32,6 +34,8 @@ const userSchema = new Schema<IUser>({
     default: "officer",
   },
   profilePicture: { type: String, default: "" },
+  phone: { type: String, default: "" },
+  workLocation: { type: String, default: "" },
   lastLoginAt: { type: Date },
   lastLoginIP: { type: String },
   refreshTokens: [

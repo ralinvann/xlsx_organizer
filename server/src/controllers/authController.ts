@@ -4,11 +4,12 @@ import jwt from "jsonwebtoken";
 import User from "../models/User";
 import cloudinary from "../config/cloudinary";
 import { requireAuth } from "../middleware/auth";
+import { logActivity } from "../utils/activityLogger";
 
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
 export const signup = async (req: Request, res: Response): Promise<void> => {
-  const { firstName, lastName, email, password, profilePicture } = req.body;
+  const { firstName, middleName, lastName, email, password, profilePicture, phone, workLocation } = req.body;
 
   try {
     const existing = await User.findOne({ email });
@@ -29,11 +30,14 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
     const hashed = await bcrypt.hash(password, 10);
     const user = await User.create({
       firstName,
+      middleName: String(middleName ?? "").trim(),
       lastName,
       email,
       password: hashed,
       role: "officer",
       profilePicture: uploadedPicture,
+      phone: String(phone ?? "").trim(),
+      workLocation: String(workLocation ?? "").trim(),
     });
 
     const token = jwt.sign(
@@ -57,10 +61,13 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       user: {
         id: user._id,
         firstName: user.firstName,
+        middleName: user.middleName,
         lastName: user.lastName,
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        phone: user.phone,
+        workLocation: user.workLocation,
       },
     });
   } catch (err) {
@@ -90,16 +97,24 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       lastLoginIP: clientIP
     });
 
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
     // Remember-me option: client may pass `remember: true` to prolong cookie
     const remember = Boolean(req.body?.remember);
     const isProd = process.env.NODE_ENV === "production";
     const maxAge = remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const tokenExpiresIn = remember ? "30d" : "1d";
+
+    const token = jwt.sign(
+      { userId: user._id, role: user.role },
+      JWT_SECRET,
+      { expiresIn: tokenExpiresIn }
+    );
+
+    await logActivity({
+      userId: String(user._id),
+      action: "login",
+      details: "Login ke sistem",
+      metadata: { ip: clientIP },
+    });
 
     res.cookie("token", token, {
       httpOnly: true,
@@ -114,10 +129,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       user: {
         id: user._id,
         firstName: user.firstName,
+        middleName: user.middleName,
         lastName: user.lastName,
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        phone: user.phone,
+        workLocation: user.workLocation,
         lastLoginAt: user.lastLoginAt,
         lastLoginIP: user.lastLoginIP,
       },
@@ -129,6 +147,14 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (req.user?.id) {
+      await logActivity({
+        userId: req.user.id,
+        action: "logout",
+        details: "Logout dari sistem",
+      });
+    }
+
     const isProd = process.env.NODE_ENV === "production";
     res.clearCookie("token", { httpOnly: true, sameSite: isProd ? "none" : "lax", secure: isProd, path: "/" });
     res.status(200).json({ message: "Logged out" });
@@ -162,10 +188,13 @@ export const getCurrentUser = async (
       user: {
         id: user._id,
         firstName: user.firstName,
+        middleName: user.middleName,
         lastName: user.lastName,
         email: user.email,
         role: user.role,
         profilePicture: user.profilePicture,
+        phone: user.phone,
+        workLocation: user.workLocation,
         lastLoginAt: user.lastLoginAt,
         lastLoginIP: user.lastLoginIP,
         createdAt: user.createdAt,

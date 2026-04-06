@@ -3,21 +3,20 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Heart, Eye, EyeOff, ArrowLeft } from "lucide-react";
-import { useAuth } from "../hooks/useAuth";
 
 interface LoginScreenProps {
-  onLogin: () => void;
+  onLogin: (email: string, password: string, remember: boolean) => Promise<{ ok: boolean; message?: string }>;
   onBack?: () => void;
   onGuest?: () => void;
 }
 
 export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
-  const { login, loading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [rememberDevice, setRememberDevice] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const handleChange =
     (field: "email" | "password") =>
@@ -34,14 +33,15 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
       return;
     }
 
-    const res = await login(formData.email, formData.password, rememberDevice);
+    setSubmitting(true);
+    const res = await onLogin(formData.email, formData.password, rememberDevice);
+    setSubmitting(false);
     if (!res.ok) {
       setErrorMsg(res.message || "Login gagal.");
       return;
     }
 
     setSuccessMsg("Berhasil masuk.");
-    onLogin();
   };
 
   return (
@@ -52,19 +52,19 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
             {onBack && (
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={onBack}
-                className="absolute left-2 top-2 h-8 w-8 p-0"
-                disabled={loading}
+                className="absolute left-2 top-2 transition-all duration-200 hover:scale-110 active:scale-95"
+                disabled={submitting}
               >
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             )}
-            <div className="mx-auto w-16 h-16 bg-primary rounded-full flex items-center justify-center">
-              <Heart className="w-8 h-8 text-primary-foreground" />
+            <div className="mx-auto w-14 h-14 bg-foreground rounded-full flex items-center justify-center">
+              <Heart className="w-7 h-7 text-background" />
             </div>
-            <CardTitle className="text-3xl">Elder Care</CardTitle>
-            <CardDescription className="text-lg">Sistem Monitoring Kesehatan Lansia</CardDescription>
+            <CardTitle style={{ fontSize: "1.5rem" }}>Elder Care</CardTitle>
+            <CardDescription>Sistem Monitoring Kesehatan Lansia</CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-4">
@@ -76,10 +76,10 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
                 id="email"
                 type="email"
                 placeholder="Email"
-                className="h-12 text-lg border border-border focus:border-primary"
+                className="h-11 border border-border focus:border-primary"
                 value={formData.email}
                 onChange={handleChange("email")}
-                disabled={loading}
+                disabled={submitting}
               />
 
               <div className="relative">
@@ -87,18 +87,18 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="Password"
-                  className="h-12 text-lg border border-border focus:border-primary pr-12"
+                  className="h-11 border border-border focus:border-primary pr-12"
                   value={formData.password}
                   onChange={handleChange("password")}
-                  disabled={loading}
+                  disabled={submitting}
                 />
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 transition-all duration-200 hover:scale-110 active:scale-95"
                   onClick={() => setShowPassword((s) => !s)}
-                  disabled={loading}
+                  disabled={submitting}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -110,8 +110,8 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
                   type="checkbox"
                   checked={rememberDevice}
                   onChange={(e) => setRememberDevice(e.target.checked)}
-                  disabled={loading}
-                  className="w-4 h-4"
+                  disabled={submitting}
+                  className="w-4 h-4 rounded"
                 />
                 <label htmlFor="remember" className="text-sm text-muted-foreground">
                   Percayai perangkat ini selama 30 hari
@@ -120,15 +120,14 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
 
               <Button
                 onClick={() => void handleSubmit()}
-                className="w-full h-14 text-xl"
-                size="lg"
-                disabled={loading}
+                className="w-full h-12 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                disabled={submitting}
               >
-                {loading ? "Memproses…" : "Masuk ke Sistem"}
+                {submitting ? "Memproses..." : "Masuk ke Sistem"}
               </Button>
 
               <div className="text-center">
-                <Button variant="link" className="text-lg text-muted-foreground" disabled={loading}>
+                <Button variant="link" className="text-muted-foreground" disabled={submitting}>
                   Lupa Password?
                 </Button>
               </div>
@@ -139,10 +138,9 @@ export function LoginScreen({ onLogin, onBack, onGuest }: LoginScreenProps) {
                 <p className="text-sm text-muted-foreground mb-3">atau akses sebagai guest (akses terbatas)</p>
                 <Button
                   variant="outline"
-                  size="lg"
-                  className="w-full h-12 text-lg"
+                  className="w-full h-10 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                   onClick={onGuest}
-                  disabled={loading}
+                  disabled={submitting}
                 >
                   Kembali ke Dashboard
                 </Button>
