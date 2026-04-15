@@ -14,6 +14,7 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:3001',
     'https://xlsx-organizer.onrender.com',
+    'https://sahabat-lansia.onrender.com',
   ],
   credentials: true,
 }));
