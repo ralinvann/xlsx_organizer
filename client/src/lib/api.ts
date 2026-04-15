@@ -11,7 +11,7 @@ function resolveBaseUrl(): string {
     return "http://localhost:3001/api";
   }
 
-  return "https://xlsx-organizer-server.onrender.com/api";
+  return "https://sahabat-lansia-server.onrender.com/api";
 }
 
 export const API_BASE = resolveBaseUrl();
