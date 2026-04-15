@@ -12,6 +12,8 @@ export interface IUser extends Document {
   workLocation?: string;
   lastLoginAt?: Date;
   lastLoginIP?: string;
+  resetPasswordToken?: string;
+  resetPasswordExpires?: Date;
   refreshTokens?: Array<{
     tokenHash: string;
     createdAt: Date;
@@ -38,6 +40,8 @@ const userSchema = new Schema<IUser>({
   workLocation: { type: String, default: "" },
   lastLoginAt: { type: Date },
   lastLoginIP: { type: String },
+  resetPasswordToken: { type: String },
+  resetPasswordExpires: { type: Date },
   refreshTokens: [
     {
       tokenHash: { type: String },

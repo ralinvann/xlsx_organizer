@@ -766,7 +766,7 @@ export const getDashboardData = async (
   try {
     const docs = await ElderlyMonthlyReport.find(
       {},
-      { rowData: 1, "worksheets.rowData": 1 }
+      { rowData: 1, "worksheets.rowData": 1, bulanTahun: 1, puskesmas: 1, desa: 1, "worksheets.puskesmas": 1, "worksheets.desa": 1, submittedAt: 1, createdAt: 1 }
     ).lean();
 
     let totalRowsScanned = 0;
@@ -785,7 +785,25 @@ export const getDashboardData = async (
     const maleSet = new Set<string>();
     const femaleSet = new Set<string>();
 
+    const puskesmasSet = new Set<string>();
+    const desaSet = new Set<string>();
+    let latestDate: Date | null = null;
+    let lastUpdated = "";
+
     for (const doc of docs) {
+      const dt: Date | undefined = (doc as any).submittedAt || (doc as any).createdAt;
+      if (dt && (!latestDate || dt > latestDate)) {
+        latestDate = dt;
+        lastUpdated = String((doc as any).bulanTahun || "").trim();
+      }
+      if ((doc as any).puskesmas) puskesmasSet.add(String((doc as any).puskesmas).trim().toUpperCase());
+      if ((doc as any).desa) desaSet.add(String((doc as any).desa).trim().toUpperCase());
+      if (Array.isArray((doc as any).worksheets)) {
+        for (const ws of (doc as any).worksheets as any[]) {
+          if (ws.puskesmas) puskesmasSet.add(String(ws.puskesmas).trim().toUpperCase());
+          if (ws.desa) desaSet.add(String(ws.desa).trim().toUpperCase());
+        }
+      }
       const rows = extractRows(doc);
       totalRowsScanned += rows.length;
 
@@ -886,6 +904,9 @@ export const getDashboardData = async (
         male: maleSet.size,
         female: femaleSet.size,
       },
+      lastUpdated,
+      puskesmasCount: puskesmasSet.size,
+      desaCount: desaSet.size,
     });
   } catch (e) {
     console.error("getDashboardData error:", e);
@@ -976,7 +997,7 @@ export const downloadAnnualReportA = async (req: Request, res: Response): Promis
 
     const { monthSheetsA, kabupaten, puskesmas } = await buildMonthSheetsForYear(year, puskesmasFilter);
 
-    const buffer = generateAnnualReportA({
+    const buffer = await generateAnnualReportA({
       year,
       kabupaten: kabupatenFilter || kabupaten || "-",
       puskesmas: puskesmas || "-",
@@ -1006,7 +1027,7 @@ export const downloadAnnualReportB = async (req: Request, res: Response): Promis
 
     const { monthSheetsB, kabupaten, puskesmas } = await buildMonthSheetsForYear(year, puskesmasFilter);
 
-    const buffer = generateAnnualReportB({
+    const buffer = await generateAnnualReportB({
       year,
       kabupaten: kabupatenFilter || kabupaten || "-",
       puskesmas: puskesmas || "-",

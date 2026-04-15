@@ -77,11 +77,11 @@ export function AdminPage() {
   };
 
   const getSubmitterName = (report: any) => {
-    const u = report?.createdBy; if (!u) return "Unknown";
-    return [u.firstName, u.middleName, u.lastName].filter(Boolean).join(" ").trim() || u.email || "Unknown";
+    const u = report?.createdBy; if (!u) return "Tidak Diketahui";
+    return [u.firstName, u.middleName, u.lastName].filter(Boolean).join(" ").trim() || u.email || "Tidak Diketahui";
   };
 
-  const getFullName = (d: any) => [d.firstName, d.middleName, d.lastName].filter(Boolean).join(" ") || "Unknown";
+  const getFullName = (d: any) => [d.firstName, d.middleName, d.lastName].filter(Boolean).join(" ") || "Tidak Diketahui";
   const getInitials = (d: any) => getFullName(d).split(" ").map((n: string) => n[0]).join("").toUpperCase();
   const getUserId = (d: any) => String(d?._id ?? d?.id ?? "");
 
@@ -231,13 +231,13 @@ export function AdminPage() {
     .filter((u) => u.lastLoginAt)
     .sort((a, b) => new Date(b.lastLoginAt!).getTime() - new Date(a.lastLoginAt!).getTime())
     .slice(0, 5)
-    .map((u) => ({ user: getFullName(u), action: "Login sistem", details: `IP ${u.lastLoginIP || 'unknown'}`, timestamp: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('id-ID') : 'Unknown', bgColor: "bg-blue-100", textColor: "text-blue-600" }));
+    .map((u) => ({ user: getFullName(u), action: "Masuk ke sistem", details: `IP ${u.lastLoginIP || 'tidak diketahui'}`, timestamp: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('id-ID') : 'Tidak Diketahui', bgColor: "bg-blue-100", textColor: "text-blue-600" }));
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Admin Panel</h2>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Panel Admin</h2>
           <p className="text-sm text-muted-foreground mt-1">Kelola pengguna, sistem, dan keamanan</p>
         </div>
         <div className="flex gap-2">
@@ -271,7 +271,7 @@ export function AdminPage() {
       <Card className="shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex justify-between items-center">
-            <CardTitle style={{ fontSize: "1.125rem" }}>User Database</CardTitle>
+            <CardTitle style={{ fontSize: "1.125rem" }}>Basis Data Pengguna</CardTitle>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <Input placeholder="Cari pengguna..." className="pl-9 h-9 w-56" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -291,7 +291,7 @@ export function AdminPage() {
                   <TableRow>
                     <TableHead><Button variant="ghost" className="h-auto p-0 hover:bg-transparent gap-1" onClick={() => handleSort('name')}>Pengguna {getSortIcon('name')}</Button></TableHead>
                     <TableHead><Button variant="ghost" className="h-auto p-0 hover:bg-transparent gap-1" onClick={() => handleSort('email')}>Email {getSortIcon('email')}</Button></TableHead>
-                    <TableHead><Button variant="ghost" className="h-auto p-0 hover:bg-transparent gap-1" onClick={() => handleSort('role')}>Role {getSortIcon('role')}</Button></TableHead>
+                    <TableHead><Button variant="ghost" className="h-auto p-0 hover:bg-transparent gap-1" onClick={() => handleSort('role')}>Peran {getSortIcon('role')}</Button></TableHead>
                     <TableHead>Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -410,7 +410,7 @@ export function AdminPage() {
                       <TableCell className="text-sm">{r.kabupaten || "-"}</TableCell>
                       <TableCell className="text-sm">{r.puskesmas || r.worksheets?.[0]?.puskesmas || "-"}</TableCell>
                       <TableCell className="text-sm">{r.desa || r.worksheets?.[0]?.desa || "-"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-xs capitalize">{r.status || "imported"}</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-xs capitalize">{r.status || "diimpor"}</Badge></TableCell>
                       <TableCell className="text-sm">{getSubmitterName(r)}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{r.submittedAt || r.createdAt ? new Date(r.submittedAt || r.createdAt).toLocaleString("id-ID") : "-"}</TableCell>
                       <TableCell>
@@ -443,7 +443,7 @@ export function AdminPage() {
 
       {/* Activity Log */}
       <Card className="shadow-sm">
-        <CardHeader className="pb-2"><CardTitle style={{ fontSize: "1.125rem" }}>System Activity Log</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle style={{ fontSize: "1.125rem" }}>Log Aktivitas Sistem</CardTitle></CardHeader>
         <CardContent>
           <div className="space-y-3">
             {getLastLoginLogs().map((log, i) => (
@@ -461,7 +461,7 @@ export function AdminPage() {
             ))}
           </div>
           <div className="mt-4 text-center">
-            <Button variant="outline" className={btnAnim}>Lihat Semua Log</Button>
+            <Button variant="outline" className={btnAnim}>Lihat Semua Catatan</Button>
           </div>
         </CardContent>
       </Card>
@@ -484,7 +484,7 @@ export function AdminPage() {
             <div className="space-y-3 text-sm">
               <div><span className="text-muted-foreground">Nama:</span> {getFullName(viewUser)}</div>
               <div><span className="text-muted-foreground">Email:</span> {viewUser.email || "-"}</div>
-              <div><span className="text-muted-foreground">Role:</span> {viewUser.role || "-"}</div>
+              <div><span className="text-muted-foreground">Peran:</span> {viewUser.role || "-"}</div>
               <div><span className="text-muted-foreground">Telepon:</span> {viewUser.phone || "-"}</div>
               <div><span className="text-muted-foreground">Lokasi Kerja:</span> {viewUser.workLocation || "-"}</div>
               <div><span className="text-muted-foreground">Terakhir Login:</span> {viewUser.lastLoginAt ? new Date(viewUser.lastLoginAt).toLocaleString("id-ID") : "-"}</div>
@@ -528,12 +528,12 @@ export function AdminPage() {
                 <Input value={editForm.workLocation} onChange={(e) => setEditForm((p) => ({ ...p, workLocation: e.target.value }))} />
               </div>
               <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-sm">Role</Label>
+                <Label className="text-sm">Peran</Label>
                 {isSuperadmin ? (
                   <Select value={editForm.role} onValueChange={(v) => setEditForm((p) => ({ ...p, role: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Pilih role" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Pilih peran" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="officer">Officer</SelectItem>
+                      <SelectItem value="officer">Petugas</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
                       <SelectItem value="superadmin">Superadmin</SelectItem>
                     </SelectContent>

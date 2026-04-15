@@ -107,7 +107,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
   };
 
   const steps = [
-    { number: 1, title: "Pilih File Data", description: "Upload file Excel atau CSV berisi data kesehatan lansia", status: uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending" },
+    { number: 1, title: "Pilih File Data", description: "Unggah file Excel atau CSV berisi data kesehatan lansia", status: uploadStep > 1 ? "completed" : uploadStep === 1 ? "active" : "pending" },
     { number: 2, title: "Validasi Data", description: "Sistem akan memeriksa format dan kelengkapan data", status: uploadStep > 2 ? "completed" : uploadStep === 2 ? "active" : "pending" },
     { number: 3, title: "Konfirmasi Import", description: "Review data sebelum disimpan ke sistem", status: uploadStep > 3 ? "completed" : uploadStep === 3 ? "active" : "pending" },
   ];
@@ -290,7 +290,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Upload Document</h2>
+        <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Unggah Dokumen</h2>
         <p className="text-sm text-muted-foreground mt-1">Import data kesehatan lansia ke dalam sistem</p>
         {fileName && <div className="text-xs text-muted-foreground mt-1">File terakhir: <strong>{fileName}</strong></div>}
       </div>
@@ -298,7 +298,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       {/* Steps */}
       <Card className="shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle style={{ fontSize: "1.125rem" }}>Langkah-langkah Upload</CardTitle>
+          <CardTitle style={{ fontSize: "1.125rem" }}>Langkah-langkah Unggah</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -328,7 +328,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
       {/* Upload Area */}
       <Card className="shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle style={{ fontSize: "1.125rem" }}>Area Upload File</CardTitle>
+          <CardTitle style={{ fontSize: "1.125rem" }}>Area Unggah File</CardTitle>
         </CardHeader>
         <CardContent>
           <div
@@ -371,7 +371,7 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           <CardContent>
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                File ini memiliki beberapa worksheet. Pilih tepat satu worksheet untuk dilanjutkan ke preview dan upload.
+                File ini memiliki beberapa lembar kerja. Pilih tepat satu lembar kerja untuk dilanjutkan ke pratinjau dan unggah.
               </p>
 
               <div className="grid gap-3">

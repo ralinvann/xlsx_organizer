@@ -33,6 +33,11 @@ export function UserProfile() {
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityLoading, setActivityLoading] = useState(false);
   const [serverMsg, setServerMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [pwdMsg, setPwdMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [pwdSubmitting, setPwdSubmitting] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -57,7 +62,7 @@ export function UserProfile() {
   };
 
   const statusByAction = (action: string): ActivityStatus => {
-    if (["profile_update", "file_upload", "file_delete"].includes(action)) return "success";
+    if (["profile_update", "file_upload", "file_delete", "password_change"].includes(action)) return "success";
     if (action === "logout") return "warning";
     return "info";
   };
@@ -68,10 +73,12 @@ export function UserProfile() {
         return "Login ke sistem";
       case "logout":
         return "Logout dari sistem";
+      case "password_change":
+        return "Ganti password";
       case "profile_update":
         return "Update profil";
       case "file_upload":
-        return "Upload file";
+        return "Unggah file";
       case "file_delete":
         return "Hapus file";
       default:
@@ -137,13 +144,49 @@ export function UserProfile() {
     if (f.size > 5 * 1024 * 1024) { setServerMsg({ type: "err", text: "Max 5MB." }); e.target.value = ""; return; }
     const res = await uploadAvatar(f);
     if (res.ok) setServerMsg({ type: "ok", text: "Foto diperbarui." });
-    else setServerMsg({ type: "err", text: res.message || "Gagal upload." });
+    else setServerMsg({ type: "err", text: res.message || "Gagal mengunggah." });
     e.target.value = "";
+  };
+
+  const handleChangePassword = async () => {
+    setPwdMsg(null);
+
+    if (!oldPassword || !newPassword || !confirmNewPassword) {
+      setPwdMsg({ type: "err", text: "Password lama, password baru, dan konfirmasi wajib diisi." });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPwdMsg({ type: "err", text: "Password baru minimal 6 karakter." });
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setPwdMsg({ type: "err", text: "Konfirmasi password tidak cocok." });
+      return;
+    }
+
+    setPwdSubmitting(true);
+    try {
+      const { data } = await api.post("/auth/change-password", {
+        oldPassword,
+        newPassword,
+        confirmPassword: confirmNewPassword,
+      });
+      setPwdMsg({ type: "ok", text: String(data?.message || "Password berhasil diubah.") });
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+    } catch (e: any) {
+      setPwdMsg({ type: "err", text: e?.response?.data?.message || "Gagal mengubah password." });
+    } finally {
+      setPwdSubmitting(false);
+    }
   };
 
   if (!ready) return <div className="p-6 text-sm text-muted-foreground">Memuat profil...</div>;
   if (!user) return (
-    <div className="p-6"><Card className="shadow-sm"><CardHeader><CardTitle>Profil</CardTitle></CardHeader><CardContent className="text-sm">Silakan login untuk melihat profil.</CardContent></Card></div>
+    <div className="p-6"><Card className="shadow-sm"><CardHeader><CardTitle>Profil</CardTitle></CardHeader><CardContent className="text-sm">Silakan masuk untuk melihat profil.</CardContent></Card></div>
   );
 
   const meta = {
@@ -158,7 +201,7 @@ export function UserProfile() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>User Profile</h2>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Profil Pengguna</h2>
           <p className="text-sm text-muted-foreground mt-1">Kelola informasi akun dan aktivitas Anda</p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -167,7 +210,7 @@ export function UserProfile() {
           </Button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void handleAvatarChange(e)} />
           <Button variant="outline" onClick={() => void fetchMe()} disabled={loading} className={`gap-2 ${btnAnim}`}>
-            <RefreshCcw className="w-4 h-4" /> Refresh
+            <RefreshCcw className="w-4 h-4" /> Muat Ulang
           </Button>
           <Button variant={isEditing ? "default" : "outline"} onClick={() => isEditing ? void handleSave() : setIsEditing(true)} disabled={loading} className={`gap-2 ${btnAnim}`}>
             {isEditing ? <Save className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
@@ -235,7 +278,7 @@ export function UserProfile() {
       </Card>
 
       <Card className="shadow-sm">
-        <CardHeader className="pb-2"><CardTitle style={{ fontSize: "1.125rem" }}>Activity Log</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle style={{ fontSize: "1.125rem" }}>Log Aktivitas</CardTitle></CardHeader>
         <CardContent>
           <div className="max-h-[360px] overflow-y-auto pr-1 space-y-3">
             {activities.length === 0 && !activityLoading && (
@@ -260,6 +303,60 @@ export function UserProfile() {
               disabled={!activityHasMore || activityLoading}
             >
               {activityLoading ? "Memuat..." : activityHasMore ? "Lihat Lebih Banyak" : "Tidak Ada Aktivitas Lain"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader className="pb-2"><CardTitle style={{ fontSize: "1.125rem" }}>Ganti Password</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          {pwdMsg && (
+            <div className={`p-3 rounded-md text-sm ${pwdMsg.type === "ok" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+              {pwdMsg.text}
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Password Lama</Label>
+              <Input
+                type="password"
+                className="h-10"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                disabled={pwdSubmitting || loading}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Password Baru</Label>
+              <Input
+                type="password"
+                className="h-10"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={pwdSubmitting || loading}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Konfirmasi Password Baru</Label>
+              <Input
+                type="password"
+                className="h-10"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                disabled={pwdSubmitting || loading}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => void handleChangePassword()}
+              disabled={pwdSubmitting || loading}
+              className={btnAnim}
+            >
+              {pwdSubmitting ? "Memproses..." : "Simpan Password Baru"}
             </Button>
           </div>
         </CardContent>

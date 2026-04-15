@@ -79,7 +79,7 @@ export function useAuth() {
       setReady(true);
       return { ok: true };
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || "Login failed";
+      const msg = e?.response?.data?.message || e?.message || "Gagal masuk";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);
@@ -112,7 +112,7 @@ export function useAuth() {
       persist(nextUser);
       return { ok: true, user: nextUser };
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || "Update failed";
+      const msg = e?.response?.data?.message || e?.message || "Gagal memperbarui";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);
@@ -131,7 +131,7 @@ export function useAuth() {
       persist(nextUser);
       return { ok: true, user: nextUser };
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || "Upload failed";
+      const msg = e?.response?.data?.message || e?.message || "Gagal mengunggah";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);

@@ -74,10 +74,10 @@ function formatGenderDisplay(value: any): string {
   if (!value) return "-";
   const str = String(value).trim().toLowerCase();
   const hasL = str.includes("l"), hasP = str.includes("p");
-  if (hasL && !hasP) return "Male (Laki-laki)";
-  if (hasP && !hasL) return "Female (Perempuan)";
-  if (hasL && hasP) return "Ambiguous";
-  return "Invalid";
+  if (hasL && !hasP) return "Laki-laki";
+  if (hasP && !hasL) return "Perempuan";
+  if (hasL && hasP) return "Ambigu";
+  return "Tidak Valid";
 }
 
 function removeTrailingEmptyColumns(payload: UploadPayload): UploadPayload {
@@ -394,7 +394,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5" />
-              Preview and Edit Data
+              Pratinjau dan Edit Data
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -434,7 +434,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
             <div className="flex-1">
               <CardTitle className="flex items-center gap-2 mb-2">
                 <FileText className="w-5 h-5" />
-                Preview and Edit Data
+                Pratinjau dan Edit Data
               </CardTitle>
               <p className="text-sm text-muted-foreground">Review dan edit data sebelum menyimpan ke sistem</p>
             </div>
@@ -500,7 +500,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
       {multiWorksheetPayload && multiWorksheetPayload.worksheets.length > 1 && (
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle>Pilih Worksheet</CardTitle>
+              <CardTitle>Pilih Lembar Kerja</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-2 flex-wrap">
@@ -574,15 +574,15 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="text-3xl font-bold text-blue-600">{validationResults.total}</div>
-              <div className="text-sm text-blue-700 mt-1">Total Record</div>
+              <div className="text-sm text-blue-700 mt-1">Total Data</div>
             </div>
-            <div className="text-center p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="text-3xl font-bold text-green-600">{validationResults.valid}</div>
-              <div className="text-sm text-green-700 mt-1">Valid</div>
+            <div className="text-center p-4 bg-primary/10 border border-primary/20 rounded-lg">
+              <div className="text-3xl font-bold text-primary">{validationResults.valid}</div>
+              <div className="text-sm text-primary mt-1">Sesuai</div>
             </div>
             <div className="text-center p-4 bg-red-50 border border-red-200 rounded-lg">
               <div className="text-3xl font-bold text-red-600">{validationResults.error}</div>
-              <div className="text-sm text-red-700 mt-1">Error</div>
+              <div className="text-sm text-red-700 mt-1">Kesalahan</div>
             </div>
           </div>
 
@@ -599,10 +599,10 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <div className="w-1 h-12 bg-green-500 rounded-full shrink-0"></div>
+              <div className="flex items-center gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+                <div className="w-1 h-12 bg-primary rounded-full shrink-0"></div>
                 <div>
-                  <div className="text-sm font-medium text-green-700">Valid (Hijau)</div>
+                  <div className="text-sm font-medium text-primary">Valid (Hijau)</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     Data lengkap dan siap disimpan
                   </div>

@@ -1,6 +1,10 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
 function resolveBaseUrl(): string {
+  const envBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (envBase && envBase.trim()) {
+    return envBase.trim();
+  }
 
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") {

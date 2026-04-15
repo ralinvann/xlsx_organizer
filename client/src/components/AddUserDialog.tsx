@@ -24,16 +24,30 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState("");
+  const [role, setRole] = useState("officer");
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const resetForm = () => { setFirstName(""); setMiddleName(""); setLastName(""); setEmail(""); setPassword(""); setRole(""); setShowPassword(false); setProfilePicture(null); if (fileInputRef.current) fileInputRef.current.value = ""; };
+  const resetForm = () => {
+    setFirstName("");
+    setMiddleName("");
+    setLastName("");
+    setEmail("");
+    setPassword("");
+    setRole("officer");
+    setShowPassword(false);
+    setProfilePicture(null);
+    setFormError(null);
+    setFormSuccess(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const handleProfilePictureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast.error("Max 5MB."); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Maksimal 5MB."); return; }
     if (!file.type.startsWith("image/")) { toast.error("File harus gambar."); return; }
     const reader = new FileReader();
     reader.onloadend = () => setProfilePicture(reader.result as string);
@@ -42,12 +56,15 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName.trim()) { toast.error("Nama depan wajib."); return; }
-    if (!lastName.trim()) { toast.error("Nama belakang wajib."); return; }
-    if (!email.includes("@")) { toast.error("Email tidak valid."); return; }
-    if (password.length < 8) { toast.error("Password minimal 8 karakter."); return; }
-    if (!role) { toast.error("Role wajib dipilih."); return; }
-    if (!isSuperadmin && (role === "admin" || role === "superadmin")) { toast.error("Tidak memiliki izin."); return; }
+    setFormError(null);
+    setFormSuccess(null);
+
+    if (!firstName.trim()) { setFormError("Nama depan wajib diisi."); return; }
+    if (!lastName.trim()) { setFormError("Nama belakang wajib diisi."); return; }
+    if (!email.includes("@")) { setFormError("Email tidak valid."); return; }
+    if (password.length < 8) { setFormError("Password minimal 8 karakter."); return; }
+    if (!role) { setFormError("Peran wajib dipilih."); return; }
+    if (!isSuperadmin && (role === "admin" || role === "superadmin")) { setFormError("Tidak memiliki izin untuk memilih peran tersebut."); return; }
 
     setIsSubmitting(true);
     try {
@@ -75,12 +92,17 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
         profilePicture: profilePictureUrl,
       };
       const res = await api.post("/users", payload);
-      toast.success(res.data?.message ?? "Pengguna ditambahkan.");
+      const successMsg = res.data?.message ?? "Pengguna ditambahkan.";
+      toast.success(successMsg);
+      setFormSuccess(successMsg);
       onSuccess?.(res.data?.user);
       resetForm();
       onOpenChange(false);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Gagal menambahkan pengguna.");
+      const apiMsg = err?.response?.data?.message ?? "Gagal menambahkan pengguna.";
+      setFormError(apiMsg);
+      toast.error(apiMsg);
+      alert(apiMsg);
     } finally { setIsSubmitting(false); }
   };
 
@@ -94,6 +116,17 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
           </DialogHeader>
 
           <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4 py-4">
+            {formError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
+            {formSuccess && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                {formSuccess}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label className="text-sm">Foto Profil (Opsional)</Label>
               <div className="flex items-center gap-4">
@@ -103,7 +136,7 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
                 <div>
                   <input ref={fileInputRef} type="file" hidden accept="image/*" onChange={handleProfilePictureChange} />
                   {!profilePicture ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className={`gap-1.5 ${btnAnim}`}><Upload className="w-3.5 h-3.5" />Upload</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className={`gap-1.5 ${btnAnim}`}><Upload className="w-3.5 h-3.5" />Unggah</Button>
                   ) : (
                     <Button type="button" variant="outline" size="sm" onClick={() => { setProfilePicture(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className={`gap-1.5 ${btnAnim}`}><X className="w-3.5 h-3.5" />Hapus</Button>
                   )}
@@ -111,13 +144,13 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
               </div>
             </div>
 
-            <div className="space-y-1.5"><Label className="text-sm">Nama Depan</Label><Input className="h-9" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-sm">Nama Depan *</Label><Input className="h-9" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
             <div className="space-y-1.5"><Label className="text-sm">Nama Tengah (Opsional)</Label><Input className="h-9" value={middleName} onChange={(e) => setMiddleName(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label className="text-sm">Nama Belakang</Label><Input className="h-9" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label className="text-sm">Email</Label><Input type="email" className="h-9" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-sm">Nama Belakang *</Label><Input className="h-9" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-sm">Email *</Label><Input type="email" className="h-9" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
 
             <div className="space-y-1.5">
-              <Label className="text-sm">Password</Label>
+              <Label className="text-sm">Password *</Label>
               <div className="relative">
                 <Input type={showPassword ? "text" : "password"} className="h-9 pr-10" value={password} onChange={(e) => setPassword(e.target.value)} />
                 <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowPassword((s) => !s)}>
@@ -127,11 +160,11 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-sm">Role</Label>
+              <Label className="text-sm">Peran *</Label>
               <Select value={role} onValueChange={setRole}>
-                <SelectTrigger className="h-9"><SelectValue placeholder="Pilih role" /></SelectTrigger>
+                <SelectTrigger className="h-9"><SelectValue placeholder="Pilih peran" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="officer">Officer</SelectItem>
+                  <SelectItem value="officer">Petugas</SelectItem>
                   {isSuperadmin && <SelectItem value="admin">Admin</SelectItem>}
                   {isSuperadmin && <SelectItem value="superadmin">Superadmin</SelectItem>}
                 </SelectContent>

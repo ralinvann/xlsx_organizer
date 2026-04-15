@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SHEET_NAMES = [
@@ -23,6 +23,26 @@ const MONTH_PATTERNS: string[][] = [
 
 const YES_VALUES = new Set(["yes","ya","v","✓","x","1","true","p"]);
 
+// ─── Custom desa/kelurahan ordering ───────────────────────────────────────────
+const DESA_ORDER: string[] = [
+  "LAE NUAHA",
+  "SUNGAI RAYA",
+  "KUTA TENGAH",
+  "TAMBAHAN",
+  "GUNUNG CERIA",
+  "SIGAMBIR GAMBIR",
+  "SILUMBOYAH",
+  "PANGARIBUAN",
+  "BAKAL JULU",
+  "SIPOLTONG",
+  "PANDAN",
+  "TUALANG",
+];
+
+function normalizeDesa(name: string): string {
+  return name.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface IndividualRecord { [key: string]: any }
 
@@ -37,7 +57,6 @@ export interface AnnualReportAInput {
   year: string;
   kabupaten: string;
   puskesmas: string;
-  /** 12-element array; index 0 = Januari…index 11 = Desember. null = no data. */
   monthSheets: Array<MonthSheet | null>;
 }
 
@@ -172,7 +191,7 @@ function computeDesaMetrics(rows: IndividualRecord[], headerKeys: string[]): Des
     const nik = getNIK(rec, headerKeys);
     if (age === null || gender === null || !nik) continue;
 
-    const g = gender; // "L" | "P"
+    const g = gender;
 
     if (age >= 45 && age < 60) {
       S[g === "L" ? "praL" : "praP"].add(nik);
@@ -225,20 +244,18 @@ function pct(n: number, d: number): number {
   return d ? n / d : 0;
 }
 
-// 12-column pelayanan pattern
-function svcGroup(bIL: number, bIP: number, sasL: number, sasP: number, sasT: number): any[] {
+function svcGroup(bIL: number, bIP: number, sasL: number, sasP: number, sasT: number): number[] {
   const bIT = bIL + bIP;
   return [
-    0, 0, 0,           // bulan lalu L, P, T
-    bIL, bIP, bIT,     // bulan ini  L, P, T
-    bIL, pct(bIL, sasL),   // total L, L%
-    bIP, pct(bIP, sasP),   // total P, P%
-    bIT, pct(bIT, sasT),   // total T, T%
+    0, 0, 0,
+    bIL, bIP, bIT,
+    bIL, pct(bIL, sasL),
+    bIP, pct(bIP, sasP),
+    bIT, pct(bIT, sasT),
   ];
 }
 
-// 4-column TK / diberdayakan pattern
-function tkGroup(n: number, total: number): any[] {
+function tkGroup(n: number, total: number): number[] {
   return [0, n, n, pct(n, total)];
 }
 
@@ -284,16 +301,104 @@ function buildTotalRow(dataRows: any[][]): any[] {
   return row;
 }
 
+// ─── Style constants ──────────────────────────────────────────────────────────
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: "thin" },
+  left: { style: "thin" },
+  bottom: { style: "thin" },
+  right: { style: "thin" },
+};
+
+const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, size: 10, name: "Arial" };
+const DATA_FONT: Partial<ExcelJS.Font> = { size: 10, name: "Arial" };
+const TITLE_FONT: Partial<ExcelJS.Font> = { bold: true, size: 12, name: "Arial" };
+const META_FONT: Partial<ExcelJS.Font> = { size: 11, name: "Arial" };
+
+const HEADER_ALIGN: Partial<ExcelJS.Alignment> = {
+  horizontal: "center",
+  vertical: "middle",
+  wrapText: true,
+};
+
+const DATA_CENTER: Partial<ExcelJS.Alignment> = {
+  horizontal: "center",
+  vertical: "middle",
+};
+
+// Fill colors from template
+const fill = (argb: string): ExcelJS.Fill => ({
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb },
+});
+
+const FILL_LAVENDER   = fill("FFCCCCFF"); // SASARAN headers (cols A-N)
+const FILL_GREEN      = fill("FFCCFFCC"); // Pelayanan headers (cols O-AX, BK-BV)
+const FILL_CYAN       = fill("FFCCFFFF"); // Skrining lansia (cols AY-BJ)
+const FILL_SILVER     = fill("FFC0C0C0"); // Diberdayakan (cols BW-BZ)
+const FILL_YELLOW     = fill("FFFFFF00"); // Column number row
+const FILL_PRA_LP     = fill("FFCC99FF"); // Pra Lansia L,P data
+const FILL_PRA_T      = fill("FFCCCCFF"); // Pra Lansia T data
+const FILL_LANSIA_LP  = fill("FFFF99CC"); // Lansia L,P data
+const FILL_LANSIA_T   = fill("FFFFFF99"); // Lansia T data
+const FILL_RISTI_LP   = fill("FFCCCCFF"); // Risti L,P data
+const FILL_RISTI_T    = fill("FFFF99CC"); // Risti T data
+
+// Column width map (0-indexed = col 0..77 → exceljs 1-indexed)
+const COL_WIDTHS: number[] = [
+  3,     // A - NO
+  17.43, // B - DESA
+  7.71,  // C - JML DESA
+  8.14,  // D - JML POSYANDU
+  // E-N: SASARAN (10 cols)
+  10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57,
+  // O-Z: first part of pelayanan (12 cols)
+  6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71,
+  // AA-BJ: pelayanan + skrining (36 cols, ~5-6.7 width)
+  5.43, 6, 5.43, 6.14, 6.43, 6.14, 6, 6.14, 5.71, 5.86, 5.14, 5.86,
+  5.57, 6.29, 6.14, 5.43, 5.57, 5.71, 5.86, 5.71, 6, 6, 5.86, 5.71,
+  5.57, 6.14, 6.14, 5.14, 5.71, 5.86, 5.71, 6.57, 6.71, 6.43, 6.29, 6.57,
+  // BK-BZ: TK + Diberdayakan (16 cols)
+  8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29,
+  8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29,
+];
+
+/** Determine the header fill for a given 1-based column */
+function headerFill(c: number): ExcelJS.Fill {
+  if (c <= 14) return FILL_LAVENDER;          // A-N: SASARAN
+  if (c <= 50) return FILL_GREEN;             // O-AX: Pelayanan/Dibina
+  if (c <= 62) return FILL_CYAN;             // AY-BJ: Skrining
+  if (c <= 74) return FILL_GREEN;             // BK-BV: TK Kemandirian
+  return FILL_SILVER;                          // BW-BZ: Diberdayakan
+}
+
+/** Determine data cell fill for SASARAN columns (E-N). Returns undefined for other cols. */
+function sasaranDataFill(c: number): ExcelJS.Fill | undefined {
+  // c is 1-indexed: E=5, F=6, G=7, H=8, I=9, J=10, K=11, L=12, M=13
+  if (c === 5 || c === 6) return FILL_PRA_LP;      // Pra Lansia L, P
+  if (c === 7) return FILL_PRA_T;                    // Pra Lansia T
+  if (c === 8 || c === 9) return FILL_LANSIA_LP;    // Lansia L, P
+  if (c === 10) return FILL_LANSIA_T;                // Lansia T
+  if (c === 11 || c === 12) return FILL_RISTI_LP;   // Risti L, P
+  if (c === 13) return FILL_RISTI_T;                  // Risti T
+  return undefined;
+}
+
 // ─── Main generator ───────────────────────────────────────────────────────────
-export function generateAnnualReportA(input: AnnualReportAInput): Buffer {
+export async function generateAnnualReportA(input: AnnualReportAInput): Promise<Buffer> {
   const { year, kabupaten, puskesmas, monthSheets } = input;
   const cleanKab  = kabupaten.replace(/^:\s*/, "").trim().toUpperCase();
   const cleanPusk = puskesmas.replace(/^:\s*/, "").trim().toUpperCase();
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
+  const NC = 78; // total columns
 
   for (let m = 0; m < 12; m++) {
     const sheetData = monthSheets[m];
     const fullMonthName = MONTH_PATTERNS[m][0];
+    const ws = wb.addWorksheet(SHEET_NAMES[m]);
+
+    // ── Column widths ─────────────────────────────────────────────────────────
+    ws.columns = COL_WIDTHS.map(w => ({ width: w }));
 
     // ── Build per-desa data rows ──────────────────────────────────────────────
     const desaMap = new Map<string, IndividualRecord[]>();
@@ -305,231 +410,280 @@ export function generateAnnualReportA(input: AnnualReportAInput): Buffer {
       }
     }
 
+    // Sort desa by custom order
+    const sortedDesaEntries = [...desaMap.entries()].sort((a, b) => {
+      const normA = normalizeDesa(a[0]);
+      const normB = normalizeDesa(b[0]);
+      const idxA = DESA_ORDER.findIndex(d => normalizeDesa(d) === normA);
+      const idxB = DESA_ORDER.findIndex(d => normalizeDesa(d) === normB);
+      const orderA = idxA >= 0 ? idxA : 999;
+      const orderB = idxB >= 0 ? idxB : 999;
+      if (orderA !== orderB) return orderA - orderB;
+      return a[0].localeCompare(b[0]);
+    });
+
     const dataRows: any[][] = [];
     let no = 1;
-    for (const [desa, rows] of desaMap.entries()) {
+    for (const [desa, rows] of sortedDesaEntries) {
       const metrics = computeDesaMetrics(rows, sheetData!.headerKeys);
       dataRows.push(buildDesaRow(no++, desa, metrics));
     }
     const totalRow = buildTotalRow(dataRows);
 
-    // ── Build AOA ─────────────────────────────────────────────────────────────
-    const N = 78;
-    const E = () => Array(N).fill(null);
-    const aoa: any[][] = [];
+    // ── Row 1: blank ──────────────────────────────────────────────────────────
+    // (row 1 is blank in the template)
 
-    // Row 0: blank
-    aoa.push(E());
+    // ── Row 2: Title ──────────────────────────────────────────────────────────
+    ws.mergeCells(2, 2, 2, 21); // B2:U2
+    const titleCell = ws.getCell(2, 2);
+    titleCell.value = "LAPORAN PROGRAM PELAYANAN KESEHATAN LANJUT USIA";
+    titleCell.font = TITLE_FONT;
+    titleCell.alignment = { horizontal: "left", vertical: "middle" };
 
-    // Row 1: title
-    const r1 = E(); r1[1] = "LAPORAN PROGRAM PELAYANAN KESEHATAN LANJUT USIA";
-    aoa.push(r1);
+    // ── Row 3: blank ──────────────────────────────────────────────────────────
+    // ── Row 4: KABUPATEN ──────────────────────────────────────────────────────
+    ws.getCell(4, 2).value = "KABUPATEN";
+    ws.getCell(4, 2).font = META_FONT;
+    ws.getCell(4, 3).value = ":";
+    ws.getCell(4, 3).font = META_FONT;
+    ws.getCell(4, 4).value = cleanKab;
+    ws.getCell(4, 4).font = META_FONT;
 
-    // Row 2: blank
-    aoa.push(E());
+    // ── Row 5: PUSKESMAS ──────────────────────────────────────────────────────
+    ws.getCell(5, 2).value = "PUSKESMAS";
+    ws.getCell(5, 2).font = META_FONT;
+    ws.getCell(5, 3).value = ":";
+    ws.getCell(5, 3).font = META_FONT;
+    ws.getCell(5, 4).value = cleanPusk;
+    ws.getCell(5, 4).font = META_FONT;
 
-    // Row 3: KABUPATEN
-    const r3 = E(); r3[1] = "KABUPATEN"; r3[2] = ":"; r3[3] = cleanKab;
-    aoa.push(r3);
+    // ── Row 6: TAHUN ──────────────────────────────────────────────────────────
+    ws.getCell(6, 2).value = "TAHUN";
+    ws.getCell(6, 2).font = META_FONT;
+    ws.getCell(6, 3).value = ":";
+    ws.getCell(6, 3).font = META_FONT;
+    ws.getCell(6, 4).value = year;
+    ws.getCell(6, 4).font = META_FONT;
 
-    // Row 4: PUSKESMAS
-    const r4 = E(); r4[1] = "PUSKESMAS"; r4[2] = ":"; r4[3] = cleanPusk;
-    aoa.push(r4);
+    // ── Row 7: BULAN ──────────────────────────────────────────────────────────
+    ws.getCell(7, 2).value = "BULAN";
+    ws.getCell(7, 2).font = META_FONT;
+    ws.getCell(7, 3).value = ":";
+    ws.getCell(7, 3).font = META_FONT;
+    ws.getCell(7, 4).value = fullMonthName;
+    ws.getCell(7, 4).font = META_FONT;
 
-    // Row 5: TAHUN
-    const r5 = E(); r5[1] = "TAHUN"; r5[2] = ":"; r5[3] = year;
-    aoa.push(r5);
+    // ── Row heights ───────────────────────────────────────────────────────────
+    ws.getRow(8).height = 15;
+    ws.getRow(9).height = 15;
+    ws.getRow(10).height = 30;
+    ws.getRow(11).height = 42.75;
+    ws.getRow(12).height = 15;
+    ws.getRow(13).height = 25;
+    ws.getRow(14).height = 20;
+    ws.getRow(15).height = 18;
 
-    // Row 6: BULAN
-    const r6 = E(); r6[1] = "BULAN"; r6[2] = ":"; r6[3] = fullMonthName;
-    aoa.push(r6);
+    // ── Header rows 9-14 ─────────────────────────────────────────────────────
+    // (Template uses rows 8-13, 0-based → rows 9-14 1-based in template == our rows 9-14)
+    // Actually template row numbers in data: row 8 (0-indexed) = row 9 (1-indexed)
+    // Let me map: Template 0-indexed row 7 = header start → 1-indexed row 8
+    // But worksheet data shows: A8 = "NO." with CCCCFF bg → so 1-indexed row 8
+    const HR = 8; // header row 1 (1-indexed, where "NO." etc go)
 
-    // Row 7: blank
-    aoa.push(E());
-
-    // ── Header row 7 (index 8): top-level labels ──────────────────────────────
-    const h1 = E();
-    h1[0]  = "NO.";
-    h1[1]  = "DESA";
-    h1[2]  = "JUMLAH DESA / KELURAHAN";
-    h1[3]  = "JUMLAH POSYANDU LANSIA";
-    h1[4]  = "SASARAN";
-    h1[13] = "TOTAL SASARAN";
-    h1[14] = "PELAYANAN KESEHATAN";
-    aoa.push(h1); // index 8
-
-    // ── Header row 8 (index 9): category labels ───────────────────────────────
-    const h2 = E();
-    h2[4]  = "Jumlah \nPra Lansia\n(45-59 tahun)";
-    h2[7]  = "Jumlah Lansia \n( \u2265 60 tahun) ";
-    h2[10] = "Jumlah Lansia Risti (\u2265 70 tahun)";
-    h2[14] = "Jumlah  yang dibina\n/ yang mendapat pelayanan kesehatan";
-    h2[50] = "Lansia (\u2265 60 tahun) yang diskrining kesehatan sesuai standar";
-    h2[62] = "Jumlah Lansia dengan \ntingkat kemandirian";
-    h2[74] = "Jumlah Lansia Yang Diberdayakan";
-    aoa.push(h2); // index 9
-
-    // ── Header row 9 (index 10): sub-category labels ──────────────────────────
-    const h3 = E();
-    h3[14] = "Pra Lansia\n(45-59 tahun)";
-    h3[26] = "Lansia\n(\u2265 60 tahun)";
-    h3[38] = "Lansia Risti\n(\u2265 70 tahun)";
-    h3[62] = "Tingkat Kemandirian A (Mandiri)";
-    h3[66] = "Tingkat Kemandirian B (Ketergantungan ringan/sedang)";
-    h3[70] = "Tingkat Kemandirian C (Ketergantungan Berat/Total)";
-    aoa.push(h3); // index 10
-
-    // ── Header row 10 (index 11): Bulan lalu / Bulan ini / Total ─────────────
-    const h4 = E();
-    for (const sc of [14, 26, 38, 50]) {
-      h4[sc]     = "Bulan lalu";
-      h4[sc + 3] = "Bulan ini";
-      h4[sc + 6] = "Total";
+    // Fill all header cells (rows HR to HR+5, cols 1-78) with appropriate colors and borders
+    for (let r = HR; r <= HR + 5; r++) {
+      for (let c = 1; c <= NC; c++) {
+        const cell = ws.getCell(r, c);
+        cell.font = HEADER_FONT;
+        cell.alignment = HEADER_ALIGN;
+        cell.border = THIN_BORDER;
+        cell.fill = headerFill(c);
+      }
     }
-    aoa.push(h4); // index 11
 
-    // ── Header row 11 (index 12): L / P / T + TK labels ──────────────────────
-    const h5 = E();
-    // Sasaran
-    h5[4]  = "L"; h5[5]  = "P"; h5[6]  = "T";
-    h5[7]  = "L"; h5[8]  = "P"; h5[9]  = "T";
-    h5[10] = "L"; h5[11] = "P"; h5[12] = "T";
-    // Pelayanan
-    for (const sc of [14, 26, 38, 50]) {
-      h5[sc]    = "L"; h5[sc+1]  = "P"; h5[sc+2]  = "T"; // bulan lalu
-      h5[sc+3]  = "L"; h5[sc+4]  = "P"; h5[sc+5]  = "T"; // bulan ini
-      h5[sc+6]  = "L"; h5[sc+8]  = "P"; h5[sc+10] = "T"; // total
+    // Adjust specific section fills for skrining (AY-BJ) in rows 9-13
+    // The header fills are already set by headerFill() which handles per-column
+
+    // Helper to set header cell value
+    const setH = (r: number, c: number, v: string) => {
+      ws.getCell(r, c).value = v;
+    };
+
+    // ── HR (row 8): Top-level labels ──────────────────────────────────────────
+    ws.mergeCells(HR, 1, HR + 5, 1);   setH(HR, 1, "NO.");
+    ws.mergeCells(HR, 2, HR + 5, 2);   setH(HR, 2, "DESA");
+    ws.mergeCells(HR, 3, HR + 5, 3);   setH(HR, 3, "JUMLAH DESA / KELURAHAN");
+    ws.mergeCells(HR, 4, HR + 5, 4);   setH(HR, 4, "JUMLAH POSYANDU LANSIA");
+    ws.mergeCells(HR, 5, HR, 13);       setH(HR, 5, "SASARAN");
+    ws.mergeCells(HR, 14, HR + 5, 14); setH(HR, 14, "TOTAL SASARAN ");
+    ws.mergeCells(HR, 15, HR, 78);      setH(HR, 15, "PELAYANAN KESEHATAN");
+
+    // ── HR+1 (row 9): Category labels ─────────────────────────────────────────
+    ws.mergeCells(HR + 1, 5, HR + 3, 7);   setH(HR + 1, 5, "Jumlah \nPra Lansia\n(45-59 tahun)");
+    ws.mergeCells(HR + 1, 8, HR + 3, 10);  setH(HR + 1, 8, "Jumlah Lansia \n( \u2265 60 tahun) ");
+    ws.mergeCells(HR + 1, 11, HR + 3, 13); setH(HR + 1, 11, "Jumlah Lansia Risti (\u2265 70 tahun)");
+
+    ws.mergeCells(HR + 1, 15, HR + 1, 50); setH(HR + 1, 15, "Jumlah  yang dibina\n/ yang mendapat pelayanan kesehatan");
+    ws.mergeCells(HR + 1, 51, HR + 2, 62); setH(HR + 1, 51, "Lansia (\u2265 60 tahun) yang diskrining kesehatan sesuai standar");
+    ws.mergeCells(HR + 1, 63, HR + 1, 74); setH(HR + 1, 63, "Jumlah Lansia dengan \ntingkat kemandirian");
+    ws.mergeCells(HR + 1, 75, HR + 2, 78); setH(HR + 1, 75, "Jumlah Lansia Yang Diberdayakan");
+
+    // ── HR+2 (row 10): Sub-category labels ────────────────────────────────────
+    ws.mergeCells(HR + 2, 15, HR + 2, 26); setH(HR + 2, 15, "Pra Lansia\n(45-59 tahun)");
+    ws.mergeCells(HR + 2, 27, HR + 2, 38); setH(HR + 2, 27, "Lansia\n(\u2265 60 tahun)");
+    ws.mergeCells(HR + 2, 39, HR + 2, 50); setH(HR + 2, 39, "Lansia Risti\n(\u2265 70 tahun)");
+    ws.mergeCells(HR + 2, 63, HR + 2, 66); setH(HR + 2, 63, "Tingkat Kemandirian A (Mandiri)");
+    ws.mergeCells(HR + 2, 67, HR + 2, 70); setH(HR + 2, 67, "Tingkat Kemandirian B (Ketergantungan ringan/sedang)");
+    ws.mergeCells(HR + 2, 71, HR + 2, 74); setH(HR + 2, 71, "Tingkat Kemandirian C (Ketergantungan Berat/Total)");
+
+    // ── HR+3 (row 11): Bulan lalu / Bulan ini / Total ────────────────────────
+    for (const sc of [15, 27, 39, 51]) {
+      ws.mergeCells(HR + 3, sc, HR + 3, sc + 2);      setH(HR + 3, sc, "Bulan lalu");
+      ws.mergeCells(HR + 3, sc + 3, HR + 3, sc + 5);  setH(HR + 3, sc + 3, "Bulan ini");
+      ws.mergeCells(HR + 3, sc + 6, HR + 3, sc + 11); setH(HR + 3, sc + 6, "Total");
     }
-    // TK
-    h5[62] = "Bulan lalu"; h5[63] = "Bulan ini"; h5[64] = "Total"; h5[65] = "%";
-    h5[66] = "Bulan lalu"; h5[67] = "Bulan ini"; h5[68] = "Total"; h5[69] = "%";
-    h5[70] = "Bulan lalu"; h5[71] = "Bulan ini"; h5[72] = "Total"; h5[73] = "%";
-    h5[74] = "Bulan Lalu"; h5[75] = "Bulan Ini"; h5[76] = "Total"; h5[77] = "%";
-    aoa.push(h5); // index 12
 
-    // ── Header row 12 (index 13): Abs. / % ───────────────────────────────────
-    const h6 = E();
-    for (const c of [4,5,6,7,8,9,10,11,12]) h6[c] = "Abs.";
-    for (const sc of [14, 26, 38, 50]) {
-      h6[sc]=h6[sc+1]=h6[sc+2]="Abs.";         // bulan lalu
-      h6[sc+3]=h6[sc+4]=h6[sc+5]="Abs.";       // bulan ini
-      h6[sc+6]="Abs."; h6[sc+7]="%";
-      h6[sc+8]="Abs."; h6[sc+9]="%";
-      h6[sc+10]="Abs."; h6[sc+11]="%";          // total L/P/T with %
+    // TK labels at HR+3
+    // TK A
+    ws.mergeCells(HR + 3, 63, HR + 3, 64); setH(HR + 3, 63, "Absolut");
+    ws.mergeCells(HR + 3, 65, HR + 3, 66); setH(HR + 3, 65, "%");
+    // TK B
+    ws.mergeCells(HR + 3, 67, HR + 3, 68); setH(HR + 3, 67, "Absolut");
+    ws.mergeCells(HR + 3, 69, HR + 3, 70); setH(HR + 3, 69, "%");
+    // TK C
+    ws.mergeCells(HR + 3, 71, HR + 3, 72); setH(HR + 3, 71, "Absolut");
+    ws.mergeCells(HR + 3, 73, HR + 3, 74); setH(HR + 3, 73, "%");
+    // Diberdayakan
+    ws.mergeCells(HR + 3, 75, HR + 3, 76); setH(HR + 3, 75, "Absolut");
+
+    // ── HR+4 (row 12): L / P / T + sub labels ────────────────────────────────
+    // Sasaran L/P/T each span 2 rows (HR+4 to HR+5)
+    for (const c of [5, 6, 7, 8, 9, 10, 11, 12, 13]) {
+      ws.mergeCells(HR + 4, c, HR + 5, c);
     }
-    aoa.push(h6); // index 13
+    setH(HR + 4, 5, "L"); setH(HR + 4, 6, "P"); setH(HR + 4, 7, "T");
+    setH(HR + 4, 8, "L"); setH(HR + 4, 9, "P"); setH(HR + 4, 10, "T");
+    setH(HR + 4, 11, "L"); setH(HR + 4, 12, "P"); setH(HR + 4, 13, "T");
 
-    // ── Column numbers row (index 14) ─────────────────────────────────────────
-    aoa.push(Array.from({ length: N }, (_, i) => i + 1)); // index 14
+    // Pelayanan L/P/T
+    for (const sc of [15, 27, 39, 51]) {
+      // Bulan lalu L/P/T
+      setH(HR + 4, sc, "L"); setH(HR + 4, sc + 1, "P "); setH(HR + 4, sc + 2, "T");
+      // Bulan ini L/P/T
+      setH(HR + 4, sc + 3, "L"); setH(HR + 4, sc + 4, "P "); setH(HR + 4, sc + 5, "T");
+      // Total merged pairs
+      ws.mergeCells(HR + 4, sc + 6, HR + 4, sc + 7);   setH(HR + 4, sc + 6, "L");
+      ws.mergeCells(HR + 4, sc + 8, HR + 4, sc + 9);   setH(HR + 4, sc + 8, "P ");
+      ws.mergeCells(HR + 4, sc + 10, HR + 4, sc + 11); setH(HR + 4, sc + 10, "T");
+    }
+
+    // TK sub-labels at HR+4
+    setH(HR + 4, 63, "Bulan lalu"); setH(HR + 4, 64, "Bulan ini");
+    setH(HR + 4, 65, "Total"); ws.mergeCells(HR + 4, 66, HR + 5, 66);
+    setH(HR + 4, 67, "Bulan lalu"); setH(HR + 4, 68, "Bulan ini");
+    setH(HR + 4, 69, "Total"); ws.mergeCells(HR + 4, 70, HR + 5, 70);
+    setH(HR + 4, 71, "Bulan lalu"); setH(HR + 4, 72, "Bulan ini");
+    setH(HR + 4, 73, "Total"); ws.mergeCells(HR + 4, 74, HR + 5, 74);
+    setH(HR + 4, 75, "Bulan Lalu"); setH(HR + 4, 76, "Bulan Ini");
+    setH(HR + 4, 77, "Total"); ws.mergeCells(HR + 4, 78, HR + 5, 78); setH(HR + 4, 78, "%");
+
+    // ── HR+5 (row 13): Abs. / % ──────────────────────────────────────────────
+    // Sasaran: all "Abs."
+    // (these are merged with HR+4, no explicit value needed - covered by L/P/T merges)
+
+    // Pelayanan Abs. / %
+    for (const sc of [15, 27, 39, 51]) {
+      // Bulan lalu
+      setH(HR + 5, sc, "Abs."); setH(HR + 5, sc + 1, "Abs."); setH(HR + 5, sc + 2, "Abs.");
+      // Bulan ini
+      setH(HR + 5, sc + 3, "Abs."); setH(HR + 5, sc + 4, "Abs."); setH(HR + 5, sc + 5, "Abs.");
+      // Total
+      setH(HR + 5, sc + 6, "Abs."); setH(HR + 5, sc + 7, "%");
+      setH(HR + 5, sc + 8, "Abs."); setH(HR + 5, sc + 9, "%");
+      setH(HR + 5, sc + 10, "Abs."); setH(HR + 5, sc + 11, "%");
+    }
+
+    // ── Column numbers row (HR+6 = row 14) ───────────────────────────────────
+    const numRow = HR + 6; // row 14
+    for (let c = 1; c <= NC; c++) {
+      const cell = ws.getCell(numRow, c);
+      cell.value = c;
+      cell.font = HEADER_FONT;
+      cell.alignment = DATA_CENTER;
+      cell.border = THIN_BORDER;
+      cell.fill = FILL_YELLOW;
+    }
 
     // ── Data rows ─────────────────────────────────────────────────────────────
-    for (const dr of dataRows) aoa.push(dr);
-    aoa.push(totalRow);
+    const dataStartRow = numRow + 1; // row 15
+    for (let di = 0; di < dataRows.length; di++) {
+      const dr = dataRows[di];
+      const excelRow = dataStartRow + di;
+      const row = ws.getRow(excelRow);
+      row.height = 17.25;
+
+      for (let ci = 0; ci < NC; ci++) {
+        const c = ci + 1; // 1-indexed
+        const cell = row.getCell(c);
+        cell.value = dr[ci] ?? null;
+        cell.font = DATA_FONT;
+        cell.alignment = DATA_CENTER;
+        cell.border = THIN_BORDER;
+
+        // Apply SASARAN data fill colors
+        const sFill = sasaranDataFill(c);
+        if (sFill) cell.fill = sFill;
+
+        // Format percentage columns as %
+        if (typeof dr[ci] === "number" && dr[ci] > 0 && dr[ci] < 1) {
+          cell.numFmt = "0%";
+        }
+      }
+
+      // Override alignment for DESA column (B)
+      row.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
+    }
+
+    // ── Total row ─────────────────────────────────────────────────────────────
+    const totalExcelRow = dataStartRow + dataRows.length;
+    const tRow = ws.getRow(totalExcelRow);
+    tRow.height = 17.25;
+    for (let ci = 0; ci < NC; ci++) {
+      const c = ci + 1;
+      const cell = tRow.getCell(c);
+      cell.value = totalRow[ci] ?? null;
+      cell.font = { ...DATA_FONT, bold: true };
+      cell.alignment = DATA_CENTER;
+      cell.border = THIN_BORDER;
+
+      const sFill = sasaranDataFill(c);
+      if (sFill) cell.fill = sFill;
+
+      if (typeof totalRow[ci] === "number" && totalRow[ci] > 0 && totalRow[ci] < 1) {
+        cell.numFmt = "0%";
+      }
+    }
+    tRow.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
 
     // ── Signature section ─────────────────────────────────────────────────────
-    aoa.push(E());
-    const sigDate = E(); sigDate[1] = "Laporan bulanan";
-    aoa.push(sigDate);
-    const sigPlace = E();
-    sigPlace[71] = `${cleanPusk}, ${fullMonthName} ${year}`;
-    aoa.push(sigPlace);
-    const sigMengetahui = E(); sigMengetahui[2] = "Mengetahui :";
-    sigMengetahui[71] = "Pemegang  Program Kesehatan Lansia :";
-    aoa.push(sigMengetahui);
-    const sigKepala = E(); sigKepala[2] = `Kepala UPTD. Puskesmas ${cleanPusk}`;
-    aoa.push(sigKepala);
-    aoa.push(E()); aoa.push(E()); aoa.push(E()); aoa.push(E());
+    const sigStart = totalExcelRow + 2;
+    ws.getCell(sigStart, 2).value = "Laporan bulanan";
+    ws.getCell(sigStart, 2).font = META_FONT;
 
-    // ── Worksheet ─────────────────────────────────────────────────────────────
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws.getCell(sigStart + 1, 72).value = `${cleanPusk}, ${fullMonthName} ${year}`;
+    ws.getCell(sigStart + 1, 72).font = META_FONT;
 
-    ws["!cols"] = [
-      { wch: 5  }, // col 0: NO
-      { wch: 22 }, // col 1: DESA
-      { wch: 10 }, // col 2
-      { wch: 10 }, // col 3
-      ...Array(74).fill({ wch: 8 }),
-    ];
+    ws.getCell(sigStart + 2, 3).value = "Mengetahui :";
+    ws.getCell(sigStart + 2, 3).font = META_FONT;
+    ws.getCell(sigStart + 2, 72).value = "Pemegang  Program Kesehatan Lansia :";
+    ws.getCell(sigStart + 2, 72).font = META_FONT;
 
-    ws["!rows"] = [
-      { hpx: 12 }, { hpx: 25 }, { hpx: 12 },
-      { hpx: 15 }, { hpx: 15 }, { hpx: 15 }, { hpx: 15 },
-      { hpx: 12 },
-      { hpx: 25 }, { hpx: 50 }, { hpx: 40 }, { hpx: 20 }, { hpx: 25 }, { hpx: 20 }, { hpx: 18 },
-    ];
-
-    // ── Merges ────────────────────────────────────────────────────────────────
-    // Header starts at aoa index 8; r values are 0-based
-    const HR = 8; // header row 1 in aoa (0-based)
-    const merges: XLSX.Range[] = [
-      // Title
-      { s: { r: 1, c: 1 }, e: { r: 1, c: 20 } },
-
-      // NO / DESA / JML_DESA / JML_POSYANDU / TOTAL SASARAN — span all 6 header rows
-      { s: { r: HR, c: 0  }, e: { r: HR+5, c: 0  } }, // NO
-      { s: { r: HR, c: 1  }, e: { r: HR+5, c: 1  } }, // DESA
-      { s: { r: HR, c: 2  }, e: { r: HR+5, c: 2  } }, // JML DESA
-      { s: { r: HR, c: 3  }, e: { r: HR+5, c: 3  } }, // JML POSYANDU
-      { s: { r: HR, c: 13 }, e: { r: HR+5, c: 13 } }, // TOTAL SASARAN
-
-      // SASARAN group (row HR, cols 4-12)
-      { s: { r: HR, c: 4 }, e: { r: HR, c: 12 } },
-
-      // PELAYANAN KESEHATAN (row HR, cols 14-77)
-      { s: { r: HR, c: 14 }, e: { r: HR, c: 77 } },
-
-      // Sasaran sub-groups (rows HR+1 to HR+3, i.e. category label rows)
-      { s: { r: HR+1, c: 4  }, e: { r: HR+3, c: 6  } }, // Pra Lansia
-      { s: { r: HR+1, c: 7  }, e: { r: HR+3, c: 9  } }, // Lansia
-      { s: { r: HR+1, c: 10 }, e: { r: HR+3, c: 12 } }, // Risti
-
-      // Sasaran L/P/T each span rows HR+4 to HR+5
-      ...([4,5,6,7,8,9,10,11,12] as number[]).map(c => ({
-        s: { r: HR+4, c }, e: { r: HR+5, c },
-      })),
-
-      // "Jumlah yang dibina" (row HR+1, cols 14-49)
-      { s: { r: HR+1, c: 14 }, e: { r: HR+1, c: 49 } },
-
-      // Skrining lansia >=60 (rows HR+1..HR+2, cols 50-61)
-      { s: { r: HR+1, c: 50 }, e: { r: HR+2, c: 61 } },
-
-      // Tingkat kemandirian (row HR+1, cols 62-73)
-      { s: { r: HR+1, c: 62 }, e: { r: HR+1, c: 73 } },
-
-      // Diberdayakan (rows HR+1..HR+2, cols 74-77)
-      { s: { r: HR+1, c: 74 }, e: { r: HR+2, c: 77 } },
-
-      // Service sub-groups (row HR+2)
-      { s: { r: HR+2, c: 14 }, e: { r: HR+2, c: 25 } }, // Pra Lansia
-      { s: { r: HR+2, c: 26 }, e: { r: HR+2, c: 37 } }, // Lansia
-      { s: { r: HR+2, c: 38 }, e: { r: HR+2, c: 49 } }, // Risti
-
-      // TK groups (row HR+2)
-      { s: { r: HR+2, c: 62 }, e: { r: HR+2, c: 65 } }, // TK A
-      { s: { r: HR+2, c: 66 }, e: { r: HR+2, c: 69 } }, // TK B
-      { s: { r: HR+2, c: 70 }, e: { r: HR+2, c: 73 } }, // TK C
-
-      // Bulan lalu / Bulan ini / Total (row HR+3)
-      ...([14, 26, 38, 50] as number[]).flatMap(sc => [
-        { s: { r: HR+3, c: sc     }, e: { r: HR+3, c: sc+2  } }, // Bulan lalu
-        { s: { r: HR+3, c: sc+3   }, e: { r: HR+3, c: sc+5  } }, // Bulan ini
-        { s: { r: HR+3, c: sc+6   }, e: { r: HR+3, c: sc+11 } }, // Total
-      ]),
-
-      // Total L/P/T merged pairs (row HR+4)
-      ...([14, 26, 38, 50] as number[]).flatMap(sc => [
-        { s: { r: HR+4, c: sc+6  }, e: { r: HR+4, c: sc+7  } }, // L merged
-        { s: { r: HR+4, c: sc+8  }, e: { r: HR+4, c: sc+9  } }, // P merged
-        { s: { r: HR+4, c: sc+10 }, e: { r: HR+4, c: sc+11 } }, // T merged
-      ]),
-    ];
-
-    ws["!merges"] = merges;
-    XLSX.utils.book_append_sheet(wb, ws, SHEET_NAMES[m]);
+    ws.getCell(sigStart + 3, 3).value = `Kepala UPTD. Puskesmas ${cleanPusk}`;
+    ws.getCell(sigStart + 3, 3).font = META_FONT;
   }
 
-  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" }) as Buffer;
+  const arrayBuffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 // ─── Month matching ───────────────────────────────────────────────────────────

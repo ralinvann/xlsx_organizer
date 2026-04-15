@@ -1,8 +1,45 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
-interface IndividualRecord {
-  [key: string]: any;
+// ─── Custom desa/kelurahan ordering ───────────────────────────────────────────
+const DESA_ORDER: string[] = [
+  "LAE NUAHA",
+  "SUNGAI RAYA",
+  "KUTA TENGAH",
+  "TAMBAHAN",
+  "GUNUNG CERIA",
+  "SIGAMBIR GAMBIR",
+  "SILUMBOYAH",
+  "PANGARIBUAN",
+  "BAKAL JULU",
+  "SIPOLTONG",
+  "PANDAN",
+  "TUALANG",
+];
+
+function normalizeDesa(name: string): string {
+  return name.trim().toUpperCase().replace(/\s+/g, " ");
 }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const MONTH_PATTERNS: string[][] = [
+  ["JANUARI","JANUARY","JAN"],
+  ["FEBRUARI","FEBRUARY","FEB"],
+  ["MARET","MARCH","MAR"],
+  ["APRIL","APR"],
+  ["MEI","MAY"],
+  ["JUNI","JUNE","JUN"],
+  ["JULI","JULY","JUL"],
+  ["AGUSTUS","AUGUST","AGT","AGST","AGU"],
+  ["SEPTEMBER","SEPT","SEP"],
+  ["OKTOBER","OCTOBER","OKT","OCT"],
+  ["NOVEMBER","NOV"],
+  ["DESEMBER","DECEMBER","DES","DEC"],
+];
+
+const YES_VALUES = new Set(["yes","ya","v","✓","x","1","true","p"]);
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface IndividualRecord { [key: string]: any }
 
 interface WorksheetData {
   worksheetName: string;
@@ -21,493 +58,599 @@ interface MonthlyReportPayload {
   worksheets: WorksheetData[];
 }
 
-// Helper: Extract month and year
-function parseMonthYear(bulanTahun: string): { month: string; year: string } {
-  const parts = bulanTahun.trim().toUpperCase().split(/\s+/);
-  const month = parts[0] || "BULAN";
-  const year = parts[1] || new Date().getFullYear().toString();
-  return { month, year };
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function normKey(k: string): string {
+  return String(k)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
 }
 
-// Helper: Get age from UMUR or TANGGAL LAHIR
+function findHK(headerKeys: string[], test: (n: string) => boolean): string | undefined {
+  return headerKeys.find(k => test(normKey(k)));
+}
+
+function isMarked(v: any): boolean {
+  if (v === null || v === undefined || v === "") return false;
+  return YES_VALUES.has(String(v).trim().toLowerCase());
+}
+
 function getAge(record: IndividualRecord, headerKeys: string[]): number | null {
-  const umurKey = headerKeys.find((k) => k.toLowerCase() === "umur");
-  if (umurKey && record[umurKey] !== null && record[umurKey] !== undefined) {
-    const age = Number(record[umurKey]);
-    if (!isNaN(age)) return age;
-  }
-
-  const tanggalKey = headerKeys.find(
-    (k) =>
-      k.toLowerCase().includes("tanggal") &&
-      k.toLowerCase().includes("lahir")
-  );
-
-  if (tanggalKey && record[tanggalKey]) {
-    try {
-      const birthValue = record[tanggalKey];
-      let birthDate: Date;
-
-      if (typeof birthValue === "number" && Number.isInteger(birthValue)) {
-        const excelEpoch = new Date(1899, 11, 30);
-        birthDate = new Date(
-          excelEpoch.getTime() + birthValue * 24 * 60 * 60 * 1000
-        );
-      } else if (typeof birthValue === "string") {
-        birthDate = new Date(birthValue);
-      } else {
-        return null;
-      }
-
-      if (!isNaN(birthDate.getTime())) {
-        const today = new Date();
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const monthDiff = today.getMonth() - birthDate.getMonth();
-        if (
-          monthDiff < 0 ||
-          (monthDiff === 0 && today.getDate() < birthDate.getDate())
-        ) {
-          age--;
-        }
-        return Math.max(0, age);
-      }
-    } catch {
-      return null;
+  const umurKey = findHK(headerKeys, n => n === "umur" || n === "usia" || n === "age");
+  if (umurKey !== undefined) {
+    const v = record[umurKey];
+    if (v !== null && v !== undefined) {
+      const s = String(v).trim().replace(/\s*tahun.*/i, "");
+      const n = parseFloat(s.replace(",", "."));
+      if (!isNaN(n) && n >= 0) return Math.floor(n);
     }
   }
-
-  return null;
-}
-
-// Helper: Get gender (L/P)
-function getGender(record: IndividualRecord, headerKeys: string[]): string | null {
-  const jkKey = headerKeys.find(
-    (k) =>
-      k.toLowerCase() === "jk" ||
-      (k.toLowerCase().includes("jenis") &&
-        k.toLowerCase().includes("kelamin"))
+  const tglKey = findHK(headerKeys, n =>
+    (n.includes("tanggal") && n.includes("lahir")) ||
+    n === "tgllahir" || n === "birthdate" ||
+    (n.includes("birth") && n.includes("date")),
   );
-
-  if (jkKey) {
-    const val = String(record[jkKey] || "").trim().toUpperCase();
-    if (val === "L" || val === "LAKI-LAKI" || val.startsWith("L")) return "L";
-    if (val === "P" || val === "PEREMPUAN" || val.startsWith("P")) return "P";
+  if (tglKey !== undefined && record[tglKey]) {
+    const v = record[tglKey];
+    let birthDate: Date | null = null;
+    if (typeof v === "number" && isFinite(v)) {
+      const epoch = new Date(1899, 11, 30);
+      birthDate = new Date(epoch.getTime() + v * 86400000);
+    } else if (typeof v === "string") {
+      const parts = v.trim().split(/[\/\-\.]/);
+      if (parts.length === 3) {
+        const [a, b, c] = parts.map(Number);
+        if (c > 1900) {
+          const d = new Date(c, b - 1, a);
+          if (!isNaN(d.getTime())) birthDate = d;
+        } else {
+          const d = new Date(a, b - 1, c);
+          if (!isNaN(d.getTime())) birthDate = d;
+        }
+      }
+    }
+    if (birthDate && !isNaN(birthDate.getTime())) {
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      if (
+        today.getMonth() < birthDate.getMonth() ||
+        (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate())
+      ) age--;
+      return age >= 0 ? age : null;
+    }
   }
-
   return null;
 }
 
-// Helper: Check if service column is marked
-function isServiceMarked(value: any): boolean {
-  if (value === null || value === undefined || value === "") return false;
-  const str = String(value).trim().toLowerCase();
-  return (
-    str === "yes" ||
-    str === "ya" ||
-    str === "v" ||
-    str === "✓" ||
-    str === "x" ||
-    str === "1" ||
-    str === "true"
+function getGender(record: IndividualRecord, headerKeys: string[]): "L" | "P" | null {
+  const jkKey = findHK(headerKeys, n =>
+    n === "jk" || n.includes("jeniskelamin") || n === "gender",
   );
+  if (jkKey !== undefined) {
+    const v = String(record[jkKey] ?? "").trim().toUpperCase();
+    if (v === "L" || v === "LAKILAKI" || v.startsWith("L")) return "L";
+    if (v === "P" || v === "PEREMPUAN" || v.startsWith("P")) return "P";
+  }
+  return null;
 }
 
-// Helper: Get NIK
 function getNIK(record: IndividualRecord, headerKeys: string[]): string {
-  const nikKey = headerKeys.find((k) => k.toLowerCase() === "nik");
-  return nikKey ? String(record[nikKey] || "").trim() : "";
+  const nikKey = findHK(headerKeys, n => n === "nik" || n.includes("nik"));
+  return nikKey ? String(record[nikKey] ?? "").trim() : "";
 }
 
-// Main calculation function
-function calculateMetrics(worksheet: WorksheetData): any {
-  const { rowData, headerKeys } = worksheet;
-
-  const skriningKey = headerKeys.find(
-    (k) => k.toLowerCase().includes("skrining") && !k.includes("_2")
+function getAlamat(record: IndividualRecord, headerKeys: string[]): string {
+  const key = findHK(headerKeys, n =>
+    n.includes("alamat") || n === "desa" || n === "address" || n === "village",
   );
-  const pengobatanKey = headerKeys.find(
-    (k) => k.toLowerCase().includes("pengobatan") && !k.includes("_2")
-  );
-  const penyuluhanKey = headerKeys.find(
-    (k) => k.toLowerCase().includes("penyuluhan") && !k.includes("_2")
-  );
-  const pemberdayaanKey = headerKeys.find(
-    (k) => k.toLowerCase().includes("pemberdayaan") && !k.includes("_2")
-  );
+  return key ? String(record[key] ?? "").trim().toUpperCase() : "";
+}
 
-  const tingkatAKey = headerKeys.find((k) => k.toLowerCase() === "a");
-  const tingkatBKey = headerKeys.find((k) => k.toLowerCase() === "b");
-  const tingkatCKey = headerKeys.find((k) => k.toLowerCase() === "c");
+// ─── Metrics computation ──────────────────────────────────────────────────────
+interface DesaMetrics {
+  sasaran: { praL: number; praP: number; lansiaL: number; lansiaP: number; ristiL: number; ristiP: number };
+  yangDibina: { praL: number; praP: number; lansiaL: number; lansiaP: number; ristiL: number; ristiP: number };
+  skriningLansia: { L: number; P: number };
+  tkA: number;
+  tkB: number;
+  tkC: number;
+  diberdayakan: number;
+}
 
-  const metrics: any = {
-    preLansia: { L: new Set(), P: new Set(), T: new Set() },
-    lansia: { L: new Set(), P: new Set(), T: new Set() },
-    lansiaRisti: { L: new Set(), P: new Set(), T: new Set() },
-    yangDibina: { L: new Set(), P: new Set(), T: new Set() },
-
-    skriningPreLansia: { L: new Set(), P: new Set(), T: new Set() },
-    skriningLansia: { L: new Set(), P: new Set(), T: new Set() },
-    skriningLansiaRisti: { L: new Set(), P: new Set(), T: new Set() },
-
-    tingkatKemandirian: {
-      A: new Set(),
-      B_ringan: new Set(),
-      B_sedang: new Set(),
-      C_berat: new Set(),
-      C_total: new Set(),
-    },
-
+function computeDesaMetrics(rows: IndividualRecord[], headerKeys: string[]): DesaMetrics {
+  const S: Record<string, Set<string>> = {
+    praL: new Set(), praP: new Set(),
+    lansiaL: new Set(), lansiaP: new Set(),
+    ristiL: new Set(), ristiP: new Set(),
+    dbPraL: new Set(), dbPraP: new Set(),
+    dbLansiaL: new Set(), dbLansiaP: new Set(),
+    dbRistiL: new Set(), dbRistiP: new Set(),
+    skLansiaL: new Set(), skLansiaP: new Set(),
+    tkA: new Set(), tkB: new Set(), tkC: new Set(),
     diberdayakan: new Set(),
   };
 
-  for (const record of rowData) {
-    const age = getAge(record, headerKeys);
-    const gender = getGender(record, headerKeys);
-    const nik = getNIK(record, headerKeys);
+  const skriningKey   = findHK(headerKeys, n => n.includes("skrining"));
+  const pengobatanKey = findHK(headerKeys, n => n.includes("pengobatan"));
+  const penyuluhanKey = findHK(headerKeys, n => n.includes("penyuluhan"));
+  const pemberdayaanKey = findHK(headerKeys, n => n.includes("pemberdayaan"));
+  const tkAKey = findHK(headerKeys, n => n === "a");
+  const tkBKey = findHK(headerKeys, n => n === "b");
+  const tkCKey = findHK(headerKeys, n => n === "c");
 
+  for (const rec of rows) {
+    const age = getAge(rec, headerKeys);
+    const gender = getGender(rec, headerKeys);
+    const nik = getNIK(rec, headerKeys);
     if (age === null || gender === null || !nik) continue;
 
+    const g = gender;
+
     if (age >= 45 && age < 60) {
-      metrics.preLansia[gender].add(nik);
-      metrics.preLansia.T.add(nik);
+      S[g === "L" ? "praL" : "praP"].add(nik);
     }
-
     if (age >= 60) {
-      metrics.lansia[gender].add(nik);
-      metrics.lansia.T.add(nik);
+      S[g === "L" ? "lansiaL" : "lansiaP"].add(nik);
     }
-
     if (age >= 70) {
-      metrics.lansiaRisti[gender].add(nik);
-      metrics.lansiaRisti.T.add(nik);
+      S[g === "L" ? "ristiL" : "ristiP"].add(nik);
     }
 
     const hasService =
-      (skriningKey && isServiceMarked(record[skriningKey])) ||
-      (pengobatanKey && isServiceMarked(record[pengobatanKey])) ||
-      (penyuluhanKey && isServiceMarked(record[penyuluhanKey])) ||
-      (pemberdayaanKey && isServiceMarked(record[pemberdayaanKey]));
+      (skriningKey && isMarked(rec[skriningKey])) ||
+      (pengobatanKey && isMarked(rec[pengobatanKey])) ||
+      (penyuluhanKey && isMarked(rec[penyuluhanKey])) ||
+      (pemberdayaanKey && isMarked(rec[pemberdayaanKey]));
 
     if (hasService) {
-      metrics.yangDibina[gender].add(nik);
-      metrics.yangDibina.T.add(nik);
+      if (age >= 45 && age < 60) S[g === "L" ? "dbPraL" : "dbPraP"].add(nik);
+      if (age >= 60)             S[g === "L" ? "dbLansiaL" : "dbLansiaP"].add(nik);
+      if (age >= 70)             S[g === "L" ? "dbRistiL" : "dbRistiP"].add(nik);
     }
 
-    if (skriningKey && isServiceMarked(record[skriningKey])) {
-      if (age >= 45 && age < 60) {
-        metrics.skriningPreLansia[gender].add(nik);
-        metrics.skriningPreLansia.T.add(nik);
-      }
-      if (age >= 60) {
-        metrics.skriningLansia[gender].add(nik);
-        metrics.skriningLansia.T.add(nik);
-      }
-      if (age >= 70) {
-        metrics.skriningLansiaRisti[gender].add(nik);
-        metrics.skriningLansiaRisti.T.add(nik);
-      }
+    if (age >= 60 && skriningKey && isMarked(rec[skriningKey])) {
+      S[g === "L" ? "skLansiaL" : "skLansiaP"].add(nik);
     }
 
     if (age >= 60) {
-      if (tingkatAKey && isServiceMarked(record[tingkatAKey])) {
-        metrics.tingkatKemandirian.A.add(nik);
-      }
-      if (tingkatBKey && isServiceMarked(record[tingkatBKey])) {
-        metrics.tingkatKemandirian.B_ringan.add(nik);
-      }
-      if (tingkatCKey && isServiceMarked(record[tingkatCKey])) {
-        metrics.tingkatKemandirian.C_berat.add(nik);
-      }
+      if (tkAKey && isMarked(rec[tkAKey])) S.tkA.add(nik);
+      if (tkBKey && isMarked(rec[tkBKey])) S.tkB.add(nik);
+      if (tkCKey && isMarked(rec[tkCKey])) S.tkC.add(nik);
     }
-
-    if (
-      age >= 60 &&
-      pemberdayaanKey &&
-      isServiceMarked(record[pemberdayaanKey])
-    ) {
-      metrics.diberdayakan.add(nik);
+    if (age >= 60 && pemberdayaanKey && isMarked(rec[pemberdayaanKey])) {
+      S.diberdayakan.add(nik);
     }
   }
 
-  const totalLansia = metrics.lansia.T.size || 1;
-
+  const sz = (key: string) => S[key].size;
   return {
-    preLansia: {
-      L: metrics.preLansia.L.size,
-      P: metrics.preLansia.P.size,
-      T: metrics.preLansia.T.size,
-    },
-    lansia: {
-      L: metrics.lansia.L.size,
-      P: metrics.lansia.P.size,
-      T: metrics.lansia.T.size,
-    },
-    lansiaRisti: {
-      L: metrics.lansiaRisti.L.size,
-      P: metrics.lansiaRisti.P.size,
-      T: metrics.lansiaRisti.T.size,
-    },
-    yangDibina: {
-      L: metrics.yangDibina.L.size,
-      P: metrics.yangDibina.P.size,
-      T: metrics.yangDibina.T.size,
-    },
-    skriningPreLansia: {
-      L: metrics.skriningPreLansia.L.size,
-      P: metrics.skriningPreLansia.P.size,
-      T: metrics.skriningPreLansia.T.size,
-    },
-    skriningLansia: {
-      L: metrics.skriningLansia.L.size,
-      P: metrics.skriningLansia.P.size,
-      T: metrics.skriningLansia.T.size,
-    },
-    skriningLansiaRisti: {
-      L: metrics.skriningLansiaRisti.L.size,
-      P: metrics.skriningLansiaRisti.P.size,
-      T: metrics.skriningLansiaRisti.T.size,
-    },
-    tingkatKemandirian: {
-      A: {
-        abs: metrics.tingkatKemandirian.A.size,
-        persen: ((metrics.tingkatKemandirian.A.size / totalLansia) * 100).toFixed(2),
-      },
-      B_ringan: {
-        abs: metrics.tingkatKemandirian.B_ringan.size,
-        persen: ((metrics.tingkatKemandirian.B_ringan.size / totalLansia) * 100).toFixed(2),
-      },
-      B_sedang: {
-        abs: metrics.tingkatKemandirian.B_sedang.size,
-        persen: ((metrics.tingkatKemandirian.B_sedang.size / totalLansia) * 100).toFixed(2),
-      },
-      C_berat: {
-        abs: metrics.tingkatKemandirian.C_berat.size,
-        persen: ((metrics.tingkatKemandirian.C_berat.size / totalLansia) * 100).toFixed(2),
-      },
-      C_total: {
-        abs: metrics.tingkatKemandirian.C_total.size,
-        persen: ((metrics.tingkatKemandirian.C_total.size / totalLansia) * 100).toFixed(2),
-      },
-    },
-    diberdayakan: {
-      abs: metrics.diberdayakan.size,
-      persen: ((metrics.diberdayakan.size / totalLansia) * 100).toFixed(2),
-    },
+    sasaran:    { praL: sz("praL"),   praP: sz("praP"),    lansiaL: sz("lansiaL"),  lansiaP: sz("lansiaP"),  ristiL: sz("ristiL"),  ristiP: sz("ristiP")  },
+    yangDibina: { praL: sz("dbPraL"), praP: sz("dbPraP"),  lansiaL: sz("dbLansiaL"), lansiaP: sz("dbLansiaP"), ristiL: sz("dbRistiL"), ristiP: sz("dbRistiP") },
+    skriningLansia: { L: sz("skLansiaL"), P: sz("skLansiaP") },
+    tkA: sz("tkA"), tkB: sz("tkB"), tkC: sz("tkC"),
+    diberdayakan: sz("diberdayakan"),
   };
 }
 
-function buildMergeRanges(customRanges?: string[]): XLSX.Range[] {
-  const ranges = Array.isArray(customRanges) && customRanges.length > 0
-    ? customRanges
-    : ["A1:C1"];
-
-  return ranges
-    .map((range) => {
-      try {
-        return XLSX.utils.decode_range(range);
-      } catch {
-        return null;
-      }
-    })
-    .filter((range): range is XLSX.Range => range !== null);
+// ─── Row builders ─────────────────────────────────────────────────────────────
+function pct(n: number, d: number): number {
+  return d ? n / d : 0;
 }
 
+function svcGroup(bIL: number, bIP: number, sasL: number, sasP: number, sasT: number): number[] {
+  const bIT = bIL + bIP;
+  return [
+    0, 0, 0,
+    bIL, bIP, bIT,
+    bIL, pct(bIL, sasL),
+    bIP, pct(bIP, sasP),
+    bIT, pct(bIT, sasT),
+  ];
+}
+
+function tkGroup(n: number, total: number): number[] {
+  return [0, n, n, pct(n, total)];
+}
+
+function buildDesaRow(no: number, desa: string, m: DesaMetrics): any[] {
+  const { sasaran: s, yangDibina: d, skriningLansia: sk, tkA, tkB, tkC, diberdayakan } = m;
+  const praT   = s.praL + s.praP;
+  const lansT  = s.lansiaL + s.lansiaP;
+  const ristiT = s.ristiL + s.ristiP;
+  const total  = praT + lansT + ristiT;
+  const lansTotal = lansT || 1;
+
+  return [
+    no, desa, 1, 1,
+    s.praL,  s.praP,  praT,
+    s.lansiaL, s.lansiaP, lansT,
+    s.ristiL, s.ristiP, ristiT,
+    total,
+    ...svcGroup(d.praL,   d.praP,   s.praL,   s.praP,   praT),
+    ...svcGroup(d.lansiaL, d.lansiaP, s.lansiaL, s.lansiaP, lansT),
+    ...svcGroup(d.ristiL, d.ristiP,  s.ristiL,  s.ristiP,  ristiT),
+    0, 0, 0, sk.L, sk.P, sk.L + sk.P,
+    sk.L,  pct(sk.L, s.lansiaL),
+    sk.P,  pct(sk.P, s.lansiaP),
+    sk.L + sk.P, pct(sk.L + sk.P, lansT),
+    ...tkGroup(tkA, lansTotal),
+    ...tkGroup(tkB, lansTotal),
+    ...tkGroup(tkC, lansTotal),
+    ...tkGroup(diberdayakan, lansTotal),
+  ];
+}
+
+function buildTotalRow(dataRows: any[][]): any[] {
+  const NCOLS = 78;
+  const row: any[] = [null, "TOTAL", dataRows.length, dataRows.length];
+  for (let c = 4; c < NCOLS; c++) {
+    let sum = 0;
+    for (const dr of dataRows) {
+      const v = dr[c];
+      if (typeof v === "number" && isFinite(v)) sum += v;
+    }
+    row.push(sum);
+  }
+  return row;
+}
+
+// ─── Style constants ──────────────────────────────────────────────────────────
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: "thin" },
+  left: { style: "thin" },
+  bottom: { style: "thin" },
+  right: { style: "thin" },
+};
+
+const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, size: 10, name: "Arial" };
+const DATA_FONT: Partial<ExcelJS.Font> = { size: 10, name: "Arial" };
+const TITLE_FONT: Partial<ExcelJS.Font> = { bold: true, size: 12, name: "Arial" };
+const META_FONT: Partial<ExcelJS.Font> = { size: 11, name: "Arial" };
+
+const HEADER_ALIGN: Partial<ExcelJS.Alignment> = {
+  horizontal: "center",
+  vertical: "middle",
+  wrapText: true,
+};
+
+const DATA_CENTER: Partial<ExcelJS.Alignment> = {
+  horizontal: "center",
+  vertical: "middle",
+};
+
+const fill = (argb: string): ExcelJS.Fill => ({
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb },
+});
+
+const FILL_LAVENDER   = fill("FFCCCCFF");
+const FILL_GREEN      = fill("FFCCFFCC");
+const FILL_CYAN       = fill("FFCCFFFF");
+const FILL_SILVER     = fill("FFC0C0C0");
+const FILL_YELLOW     = fill("FFFFFF00");
+const FILL_PRA_LP     = fill("FFCC99FF");
+const FILL_PRA_T      = fill("FFCCCCFF");
+const FILL_LANSIA_LP  = fill("FFFF99CC");
+const FILL_LANSIA_T   = fill("FFFFFF99");
+const FILL_RISTI_LP   = fill("FFCCCCFF");
+const FILL_RISTI_T    = fill("FFFF99CC");
+
+const COL_WIDTHS: number[] = [
+  3,     // A - NO
+  17.43, // B - DESA
+  7.71,  // C - JML DESA
+  8.14,  // D - JML POSYANDU
+  10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57, 10.57,
+  6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71, 6.71,
+  5.43, 6, 5.43, 6.14, 6.43, 6.14, 6, 6.14, 5.71, 5.86, 5.14, 5.86,
+  5.57, 6.29, 6.14, 5.43, 5.57, 5.71, 5.86, 5.71, 6, 6, 5.86, 5.71,
+  5.57, 6.14, 6.14, 5.14, 5.71, 5.86, 5.71, 6.57, 6.71, 6.43, 6.29, 6.57,
+  8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29,
+  8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29, 8.29,
+];
+
+function headerFill(c: number): ExcelJS.Fill {
+  if (c <= 14) return FILL_LAVENDER;
+  if (c <= 50) return FILL_GREEN;
+  if (c <= 62) return FILL_CYAN;
+  if (c <= 74) return FILL_GREEN;
+  return FILL_SILVER;
+}
+
+function sasaranDataFill(c: number): ExcelJS.Fill | undefined {
+  if (c === 5 || c === 6) return FILL_PRA_LP;
+  if (c === 7) return FILL_PRA_T;
+  if (c === 8 || c === 9) return FILL_LANSIA_LP;
+  if (c === 10) return FILL_LANSIA_T;
+  if (c === 11 || c === 12) return FILL_RISTI_LP;
+  if (c === 13) return FILL_RISTI_T;
+  return undefined;
+}
+
+// ─── Month parsing ────────────────────────────────────────────────────────────
+function parseMonthYear(bulanTahun: string): { monthName: string; year: string } {
+  const upper = bulanTahun.toUpperCase().trim();
+  let monthName = "BULAN";
+  for (const patterns of MONTH_PATTERNS) {
+    if (patterns.some(p => upper.includes(p))) {
+      monthName = patterns[0];
+      break;
+    }
+  }
+  const yearMatch = upper.match(/\d{4}/);
+  const year = yearMatch ? yearMatch[0] : new Date().getFullYear().toString();
+  return { monthName, year };
+}
+
+// ─── Desa ordering helper ─────────────────────────────────────────────────────
+function sortDesaEntries<T>(entries: [string, T][]): [string, T][] {
+  return entries.sort((a, b) => {
+    const normA = normalizeDesa(a[0]);
+    const normB = normalizeDesa(b[0]);
+    const idxA = DESA_ORDER.findIndex(d => normalizeDesa(d) === normA);
+    const idxB = DESA_ORDER.findIndex(d => normalizeDesa(d) === normB);
+    const orderA = idxA >= 0 ? idxA : 999;
+    const orderB = idxB >= 0 ? idxB : 999;
+    if (orderA !== orderB) return orderA - orderB;
+    return a[0].localeCompare(b[0]);
+  });
+}
+
+// ─── Main generator ───────────────────────────────────────────────────────────
 export async function generateMonthlyReportExcel(
   payload: MonthlyReportPayload
 ): Promise<Buffer> {
   const { kabupaten, bulanTahun, worksheets } = payload;
-  const { month, year } = parseMonthYear(bulanTahun);
+  const { monthName, year } = parseMonthYear(bulanTahun);
 
-  console.log("🔵 generateMonthlyReportExcel called");
-  console.log("   Worksheets count:", worksheets.length);
-  if (worksheets[0]) {
-    console.log("   First worksheet has", worksheets[0].rowData?.length || 0, "rows");
-    console.log("   Header keys:", worksheets[0].headerKeys);
+  const cleanKab  = kabupaten.replace(/^:\s*/, "").trim().toUpperCase();
+  const cleanPusk = (worksheets[0]?.puskesmas || "-").replace(/^:\s*/, "").trim().toUpperCase();
+
+  const wb = new ExcelJS.Workbook();
+  const NC = 78;
+
+  const ws = wb.addWorksheet(monthName);
+
+  // ── Column widths ───────────────────────────────────────────────────────────
+  ws.columns = COL_WIDTHS.map(w => ({ width: w }));
+
+  // ── Merge all rows from all worksheets, group by desa ───────────────────────
+  interface DesaGroup { records: IndividualRecord[]; headerKeys: string[] }
+  const desaMap = new Map<string, DesaGroup>();
+
+  for (const worksheet of worksheets) {
+    const hk = worksheet.headerKeys;
+    for (const rec of worksheet.rowData) {
+      let desa = getAlamat(rec, hk);
+      if (!desa) {
+        desa = (worksheet.worksheetName || "").trim().toUpperCase() || "TIDAK DIKETAHUI";
+      }
+      if (!desaMap.has(desa)) {
+        desaMap.set(desa, { records: [], headerKeys: hk });
+      }
+      desaMap.get(desa)!.records.push(rec);
+    }
   }
 
-  const cleanKabupaten = kabupaten.replace(/^:\s*/, "").trim();
-  const wb = XLSX.utils.book_new();
+  // ── Sort desa by custom order ───────────────────────────────────────────────
+  const sortedEntries = sortDesaEntries([...desaMap.entries()]);
 
-  for (const ws of worksheets) {
-    const sheetName = ws.worksheetName || ws.puskesmas || "Data";
-    const metrics = calculateMetrics(ws);
+  // ── Build per-desa data rows ────────────────────────────────────────────────
+  const dataRows: any[][] = [];
+  let no = 1;
+  for (const [desa, { records, headerKeys }] of sortedEntries) {
+    const metrics = computeDesaMetrics(records, headerKeys);
+    dataRows.push(buildDesaRow(no++, desa, metrics));
+  }
+  const totalRow = buildTotalRow(dataRows);
 
-    console.log("   Metrics calculated:", {
-      lansiaCount: metrics.lansia.T,
-      skriningCount: metrics.skriningLansia.T,
-    });
+  // ── Row 2: Title ────────────────────────────────────────────────────────────
+  ws.mergeCells(2, 2, 2, 21);
+  const titleCell = ws.getCell(2, 2);
+  titleCell.value = "LAPORAN PROGRAM PELAYANAN KESEHATAN LANJUT USIA";
+  titleCell.font = TITLE_FONT;
+  titleCell.alignment = { horizontal: "left", vertical: "middle" };
 
-    const cleanPuskesmas = (ws.puskesmas || "").replace(/^:\s*/, "").trim();
-    const allRows: any[][] = [];
+  // ── Row 4: KABUPATEN ────────────────────────────────────────────────────────
+  ws.getCell(4, 2).value = "KABUPATEN"; ws.getCell(4, 2).font = META_FONT;
+  ws.getCell(4, 3).value = ":";         ws.getCell(4, 3).font = META_FONT;
+  ws.getCell(4, 4).value = cleanKab;    ws.getCell(4, 4).font = META_FONT;
 
-    const row1 = ["KABUPATEN", ":", cleanKabupaten];
-    allRows.push(row1);
+  // ── Row 5: PUSKESMAS ───────────────────────────────────────────────────────
+  ws.getCell(5, 2).value = "PUSKESMAS"; ws.getCell(5, 2).font = META_FONT;
+  ws.getCell(5, 3).value = ":";         ws.getCell(5, 3).font = META_FONT;
+  ws.getCell(5, 4).value = cleanPusk;   ws.getCell(5, 4).font = META_FONT;
 
-    const row2 = ["TAHUN", ":", year];
-    allRows.push(row2);
+  // ── Row 6: TAHUN ───────────────────────────────────────────────────────────
+  ws.getCell(6, 2).value = "TAHUN"; ws.getCell(6, 2).font = META_FONT;
+  ws.getCell(6, 3).value = ":";     ws.getCell(6, 3).font = META_FONT;
+  ws.getCell(6, 4).value = year;    ws.getCell(6, 4).font = META_FONT;
 
-    const row3 = ["BULAN", ":", month];
-    allRows.push(row3);
+  // ── Row 7: BULAN ───────────────────────────────────────────────────────────
+  ws.getCell(7, 2).value = "BULAN";    ws.getCell(7, 2).font = META_FONT;
+  ws.getCell(7, 3).value = ":";        ws.getCell(7, 3).font = META_FONT;
+  ws.getCell(7, 4).value = monthName;  ws.getCell(7, 4).font = META_FONT;
 
-    allRows.push([]);
+  // ── Row heights ─────────────────────────────────────────────────────────────
+  ws.getRow(8).height = 15;
+  ws.getRow(9).height = 15;
+  ws.getRow(10).height = 30;
+  ws.getRow(11).height = 42.75;
+  ws.getRow(12).height = 15;
+  ws.getRow(13).height = 25;
+  ws.getRow(14).height = 20;
+  ws.getRow(15).height = 18;
 
-    const row5 = [
-      "NO.",
-      "PUSKESMAS",
-      "JUMLAH DESA / KELURAHAN",
-      "JUMLAH POSYANDU LANSIA",
-      "SASARAN", "", "", "", "", "", "", "", "", "", "", "",
-      "PELAYANAN KESEHATAN", ...Array(68).fill(""),
-      "SARANA", ...Array(18).fill(""),
-      "SDM", "", "", ""
-    ];
-    allRows.push(row5);
+  // ── Header rows 8-13 ───────────────────────────────────────────────────────
+  const HR = 8;
 
-    const row6 = [
-      "", "", "", "",
-      "JUMLAH\nPRA LANSIA\n(45-59 TAHUN)", "", "",
-      "JUMLAH LANSIA\n( ≥ 60 TAHUN)", "", "",
-      "JUMLAH LANSIA RISTI (≥ 70 TAHUN)", "", "",
-      "JUMLAH  YANG DIBINA/ YANG MENDAPAT PELAYANAN KESEHATAN", "", "",
-      "LANSIA (≥ 60 TAHUN) YANG DISKRINING KESEHATAN SESUAI STANDAR", ...Array(26).fill(""),
-      "JUMLAH LANSIA DENGAN TINGKAT KEMANDIRIAN", ...Array(9).fill(""),
-      "JUMLAH LANSIA YANG DIBERDAYAKAN", "",
-      "JUMLAH KELOMPOK LANSIA/ POSYANDU LANSIA/ POSBINDU", ...Array(4).fill(""),
-      "JUMLAH PANTI WERDHA YANG DIBINA",
-      "PUSKESMAS", ...Array(12).fill(""),
-      "JUMLAH TENAGA YANG MENDAPATKAN PELATIHAN LANSIA GERIATRI", "", "", ""
-    ];
-    allRows.push(row6);
-
-    const row7 = [
-      "", "", "", "",
-      "", "", "", "", "", "", "", "", "", "", "", "",
-      "PRA LANSIA\n(45-59 TAHUN)", ...Array(8).fill(""),
-      "LANSIA\n(≥ 60 TAHUN)", ...Array(8).fill(""),
-      "LANSIA RISTI\n(≥ 70 TAHUN)", ...Array(8).fill(""),
-      "TINGKAT KEMANDIRIAN A (MANDIRI)", "",
-      "TINGKAT KEMANDIRIAN B (KETERGANTUNGAN RINGAN)", "",
-      "TINGKAT KEMANDIRIAN KETERGANTUNGAN B (SEDANG)", "",
-      "TINGKAT KEMANDIRIAN C (KETERGANTUNGAN BERAT)", "",
-      "TINGKAT KEMANDIRIAN C (KETERGANTUNGAN TOTAL)", "",
-      "", "",
-      "PRATAMA", "MADYA", "PURNAMA", "MANDIRI", "TOTAL",
-      "",
-      "JUMLAH PUSKESMAS", "", "",
-      "PUSKESMAS YANG MELAKSANAKAN PELAYANAN KESEHATAN SANTUN LANSIA", "",
-      "PUSKESMAS DENGAN POSYANDU LANSIA AKTIF", "",
-      "PUSKESMAS YANG MELAKSANAKAN LONG TERM CARE", "",
-      "DOKTER", "", "PERAWAT", ""
-    ];
-    allRows.push(row7);
-
-    const row8 = [
-      "", "", "", "",
-      "L", "P", "T", "L", "P", "T", "L", "P", "T", "L", "P", "T",
-      "BULAN LALU", "", "", "BULAN INI", "", "", "TOTAL", "", "",
-      "BULAN LALU", "", "", "BULAN INI", "", "", "TOTAL", "", "",
-      "BULAN LALU", "", "", "BULAN INI", "", "", "TOTAL", "", "",
-      "ABSOLUT", "%", "ABSOLUT", "%", "ABSOLUT", "%", "ABSOLUT", "%", "ABSOLUT", "%",
-      "ABSOLUT", "",
-      "", "", "", "", "",
-      "",
-      "BULAN LALU", "BULAN INI", "TOTAL",
-      "", "",
-      "", "",
-      "", "",
-      "Abs.", "%", "Abs.", "%"
-    ];
-    allRows.push(row8);
-
-    const row9 = [
-      "", "", "", "",
-      "", "", "", "", "", "", "", "", "", "", "", "",
-      "L", "P", "T", "L", "P", "T", "L", "P", "T",
-      "L", "P", "T", "L", "P", "T", "L", "P", "T",
-      "L", "P", "T", "L", "P", "T", "L", "P", "T",
-      "", "", "", "", "", "", "", "", "", "",
-      "", "%",
-      "", "", "", "", "",
-      "",
-      "", "", "",
-      "Abs.", "%",
-      "Abs.", "%",
-      "Abs.", "%",
-      "", "", "", ""
-    ];
-    allRows.push(row9);
-
-    const row10 = [
-      "", "", "", "",
-      "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.",
-      "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.",
-      "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.",
-      "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.", "Abs.",
-      ...Array(40).fill("")
-    ];
-    allRows.push(row10);
-
-    const totalCols = 107;
-    const row11 = Array.from({ length: totalCols }, (_, i) => i + 1);
-    allRows.push(row11);
-
-    const dataRow = [
-      1,
-      cleanPuskesmas,
-      "",
-      "",
-      metrics.preLansia.L, metrics.preLansia.P, metrics.preLansia.T,
-      metrics.lansia.L, metrics.lansia.P, metrics.lansia.T,
-      metrics.lansiaRisti.L, metrics.lansiaRisti.P, metrics.lansiaRisti.T,
-      metrics.yangDibina.L, metrics.yangDibina.P, metrics.yangDibina.T,
-
-      0, 0, 0, metrics.skriningPreLansia.L, metrics.skriningPreLansia.P, metrics.skriningPreLansia.T,
-      metrics.skriningPreLansia.L, metrics.skriningPreLansia.P, metrics.skriningPreLansia.T,
-
-      0, 0, 0, metrics.skriningLansia.L, metrics.skriningLansia.P, metrics.skriningLansia.T,
-      metrics.skriningLansia.L, metrics.skriningLansia.P, metrics.skriningLansia.T,
-
-      0, 0, 0, metrics.skriningLansiaRisti.L, metrics.skriningLansiaRisti.P, metrics.skriningLansiaRisti.T,
-      metrics.skriningLansiaRisti.L, metrics.skriningLansiaRisti.P, metrics.skriningLansiaRisti.T,
-
-      metrics.tingkatKemandirian.A.abs, metrics.tingkatKemandirian.A.persen,
-      metrics.tingkatKemandirian.B_ringan.abs, metrics.tingkatKemandirian.B_ringan.persen,
-      metrics.tingkatKemandirian.B_sedang.abs, metrics.tingkatKemandirian.B_sedang.persen,
-      metrics.tingkatKemandirian.C_berat.abs, metrics.tingkatKemandirian.C_berat.persen,
-      metrics.tingkatKemandirian.C_total.abs, metrics.tingkatKemandirian.C_total.persen,
-
-      metrics.diberdayakan.abs, metrics.diberdayakan.persen,
-
-      "", "", "", "", "",
-      "",
-      "", "", "",
-      "", "",
-      "", "",
-      "", "",
-      "", "", "", ""
-    ];
-
-    console.log("   Data row length:", dataRow.length);
-    console.log("   Data row (first 20):", dataRow.slice(0, 20));
-    allRows.push(dataRow);
-    console.log("   Total rows in allRows:", allRows.length);
-
-    const worksheet = XLSX.utils.aoa_to_sheet(allRows);
-
-    worksheet["!cols"] = Array(totalCols)
-      .fill(null)
-      .map(() => ({ wch: 12 }));
-
-    worksheet["!cols"][0] = { wch: 5 };
-    worksheet["!cols"][1] = { wch: 20 };
-    worksheet["!cols"][2] = { wch: 15 };
-    worksheet["!cols"][3] = { wch: 15 };
-
-    // ✅ ACTUAL XLSX MERGE
-    worksheet["!merges"] = buildMergeRanges(ws.mergeRanges);
-
-    XLSX.utils.book_append_sheet(wb, worksheet, sheetName.substring(0, 31));
+  for (let r = HR; r <= HR + 5; r++) {
+    for (let c = 1; c <= NC; c++) {
+      const cell = ws.getCell(r, c);
+      cell.font = HEADER_FONT;
+      cell.alignment = HEADER_ALIGN;
+      cell.border = THIN_BORDER;
+      cell.fill = headerFill(c);
+    }
   }
 
-  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+  const setH = (r: number, c: number, v: string) => {
+    ws.getCell(r, c).value = v;
+  };
+
+  // ── HR (row 8): Top-level labels ────────────────────────────────────────────
+  ws.mergeCells(HR, 1, HR + 5, 1);   setH(HR, 1, "NO.");
+  ws.mergeCells(HR, 2, HR + 5, 2);   setH(HR, 2, "DESA");
+  ws.mergeCells(HR, 3, HR + 5, 3);   setH(HR, 3, "JUMLAH DESA / KELURAHAN");
+  ws.mergeCells(HR, 4, HR + 5, 4);   setH(HR, 4, "JUMLAH POSYANDU LANSIA");
+  ws.mergeCells(HR, 5, HR, 13);       setH(HR, 5, "SASARAN");
+  ws.mergeCells(HR, 14, HR + 5, 14); setH(HR, 14, "TOTAL SASARAN ");
+  ws.mergeCells(HR, 15, HR, 78);      setH(HR, 15, "PELAYANAN KESEHATAN");
+
+  // ── HR+1 (row 9): Category labels ──────────────────────────────────────────
+  ws.mergeCells(HR + 1, 5, HR + 3, 7);   setH(HR + 1, 5, "Jumlah \nPra Lansia\n(45-59 tahun)");
+  ws.mergeCells(HR + 1, 8, HR + 3, 10);  setH(HR + 1, 8, "Jumlah Lansia \n( \u2265 60 tahun) ");
+  ws.mergeCells(HR + 1, 11, HR + 3, 13); setH(HR + 1, 11, "Jumlah Lansia Risti (\u2265 70 tahun)");
+
+  ws.mergeCells(HR + 1, 15, HR + 1, 50); setH(HR + 1, 15, "Jumlah  yang dibina\n/ yang mendapat pelayanan kesehatan");
+  ws.mergeCells(HR + 1, 51, HR + 2, 62); setH(HR + 1, 51, "Lansia (\u2265 60 tahun) yang diskrining kesehatan sesuai standar");
+  ws.mergeCells(HR + 1, 63, HR + 1, 74); setH(HR + 1, 63, "Jumlah Lansia dengan \ntingkat kemandirian");
+  ws.mergeCells(HR + 1, 75, HR + 2, 78); setH(HR + 1, 75, "Jumlah Lansia Yang Diberdayakan");
+
+  // ── HR+2 (row 10): Sub-category labels ─────────────────────────────────────
+  ws.mergeCells(HR + 2, 15, HR + 2, 26); setH(HR + 2, 15, "Pra Lansia\n(45-59 tahun)");
+  ws.mergeCells(HR + 2, 27, HR + 2, 38); setH(HR + 2, 27, "Lansia\n(\u2265 60 tahun)");
+  ws.mergeCells(HR + 2, 39, HR + 2, 50); setH(HR + 2, 39, "Lansia Risti\n(\u2265 70 tahun)");
+  ws.mergeCells(HR + 2, 63, HR + 2, 66); setH(HR + 2, 63, "Tingkat Kemandirian A (Mandiri)");
+  ws.mergeCells(HR + 2, 67, HR + 2, 70); setH(HR + 2, 67, "Tingkat Kemandirian B (Ketergantungan ringan/sedang)");
+  ws.mergeCells(HR + 2, 71, HR + 2, 74); setH(HR + 2, 71, "Tingkat Kemandirian C (Ketergantungan Berat/Total)");
+
+  // ── HR+3 (row 11): Bulan lalu / Bulan ini / Total ──────────────────────────
+  for (const sc of [15, 27, 39, 51]) {
+    ws.mergeCells(HR + 3, sc, HR + 3, sc + 2);      setH(HR + 3, sc, "Bulan lalu");
+    ws.mergeCells(HR + 3, sc + 3, HR + 3, sc + 5);  setH(HR + 3, sc + 3, "Bulan ini");
+    ws.mergeCells(HR + 3, sc + 6, HR + 3, sc + 11); setH(HR + 3, sc + 6, "Total");
+  }
+
+  ws.mergeCells(HR + 3, 63, HR + 3, 64); setH(HR + 3, 63, "Absolut");
+  ws.mergeCells(HR + 3, 65, HR + 3, 66); setH(HR + 3, 65, "%");
+  ws.mergeCells(HR + 3, 67, HR + 3, 68); setH(HR + 3, 67, "Absolut");
+  ws.mergeCells(HR + 3, 69, HR + 3, 70); setH(HR + 3, 69, "%");
+  ws.mergeCells(HR + 3, 71, HR + 3, 72); setH(HR + 3, 71, "Absolut");
+  ws.mergeCells(HR + 3, 73, HR + 3, 74); setH(HR + 3, 73, "%");
+  ws.mergeCells(HR + 3, 75, HR + 3, 76); setH(HR + 3, 75, "Absolut");
+
+  // ── HR+4 (row 12): L / P / T + sub labels ──────────────────────────────────
+  for (const c of [5, 6, 7, 8, 9, 10, 11, 12, 13]) {
+    ws.mergeCells(HR + 4, c, HR + 5, c);
+  }
+  setH(HR + 4, 5, "L"); setH(HR + 4, 6, "P"); setH(HR + 4, 7, "T");
+  setH(HR + 4, 8, "L"); setH(HR + 4, 9, "P"); setH(HR + 4, 10, "T");
+  setH(HR + 4, 11, "L"); setH(HR + 4, 12, "P"); setH(HR + 4, 13, "T");
+
+  for (const sc of [15, 27, 39, 51]) {
+    setH(HR + 4, sc, "L"); setH(HR + 4, sc + 1, "P "); setH(HR + 4, sc + 2, "T");
+    setH(HR + 4, sc + 3, "L"); setH(HR + 4, sc + 4, "P "); setH(HR + 4, sc + 5, "T");
+    ws.mergeCells(HR + 4, sc + 6, HR + 4, sc + 7);   setH(HR + 4, sc + 6, "L");
+    ws.mergeCells(HR + 4, sc + 8, HR + 4, sc + 9);   setH(HR + 4, sc + 8, "P ");
+    ws.mergeCells(HR + 4, sc + 10, HR + 4, sc + 11); setH(HR + 4, sc + 10, "T");
+  }
+
+  setH(HR + 4, 63, "Bulan lalu"); setH(HR + 4, 64, "Bulan ini");
+  setH(HR + 4, 65, "Total"); ws.mergeCells(HR + 4, 66, HR + 5, 66);
+  setH(HR + 4, 67, "Bulan lalu"); setH(HR + 4, 68, "Bulan ini");
+  setH(HR + 4, 69, "Total"); ws.mergeCells(HR + 4, 70, HR + 5, 70);
+  setH(HR + 4, 71, "Bulan lalu"); setH(HR + 4, 72, "Bulan ini");
+  setH(HR + 4, 73, "Total"); ws.mergeCells(HR + 4, 74, HR + 5, 74);
+  setH(HR + 4, 75, "Bulan Lalu"); setH(HR + 4, 76, "Bulan Ini");
+  setH(HR + 4, 77, "Total"); ws.mergeCells(HR + 4, 78, HR + 5, 78); setH(HR + 4, 78, "%");
+
+  // ── HR+5 (row 13): Abs. / % ────────────────────────────────────────────────
+  for (const sc of [15, 27, 39, 51]) {
+    setH(HR + 5, sc, "Abs."); setH(HR + 5, sc + 1, "Abs."); setH(HR + 5, sc + 2, "Abs.");
+    setH(HR + 5, sc + 3, "Abs."); setH(HR + 5, sc + 4, "Abs."); setH(HR + 5, sc + 5, "Abs.");
+    setH(HR + 5, sc + 6, "Abs."); setH(HR + 5, sc + 7, "%");
+    setH(HR + 5, sc + 8, "Abs."); setH(HR + 5, sc + 9, "%");
+    setH(HR + 5, sc + 10, "Abs."); setH(HR + 5, sc + 11, "%");
+  }
+
+  // ── Column numbers row (HR+6 = row 14) ─────────────────────────────────────
+  const numRow = HR + 6;
+  for (let c = 1; c <= NC; c++) {
+    const cell = ws.getCell(numRow, c);
+    cell.value = c;
+    cell.font = HEADER_FONT;
+    cell.alignment = DATA_CENTER;
+    cell.border = THIN_BORDER;
+    cell.fill = FILL_YELLOW;
+  }
+
+  // ── Data rows ───────────────────────────────────────────────────────────────
+  const dataStartRow = numRow + 1;
+  for (let di = 0; di < dataRows.length; di++) {
+    const dr = dataRows[di];
+    const excelRow = dataStartRow + di;
+    const row = ws.getRow(excelRow);
+    row.height = 17.25;
+
+    for (let ci = 0; ci < NC; ci++) {
+      const c = ci + 1;
+      const cell = row.getCell(c);
+      cell.value = dr[ci] ?? null;
+      cell.font = DATA_FONT;
+      cell.alignment = DATA_CENTER;
+      cell.border = THIN_BORDER;
+
+      const sFill = sasaranDataFill(c);
+      if (sFill) cell.fill = sFill;
+
+      if (typeof dr[ci] === "number" && dr[ci] > 0 && dr[ci] < 1) {
+        cell.numFmt = "0%";
+      }
+    }
+
+    row.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
+  }
+
+  // ── Total row ───────────────────────────────────────────────────────────────
+  const totalExcelRow = dataStartRow + dataRows.length;
+  const tRow = ws.getRow(totalExcelRow);
+  tRow.height = 17.25;
+  for (let ci = 0; ci < NC; ci++) {
+    const c = ci + 1;
+    const cell = tRow.getCell(c);
+    cell.value = totalRow[ci] ?? null;
+    cell.font = { ...DATA_FONT, bold: true };
+    cell.alignment = DATA_CENTER;
+    cell.border = THIN_BORDER;
+
+    const sFill = sasaranDataFill(c);
+    if (sFill) cell.fill = sFill;
+
+    if (typeof totalRow[ci] === "number" && totalRow[ci] > 0 && totalRow[ci] < 1) {
+      cell.numFmt = "0%";
+    }
+  }
+  tRow.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
+
+  // ── Signature section ───────────────────────────────────────────────────────
+  const sigStart = totalExcelRow + 2;
+  ws.getCell(sigStart, 2).value = "Laporan bulanan";
+  ws.getCell(sigStart, 2).font = META_FONT;
+
+  ws.getCell(sigStart + 1, 72).value = `${cleanPusk}, ${monthName} ${year}`;
+  ws.getCell(sigStart + 1, 72).font = META_FONT;
+
+  ws.getCell(sigStart + 2, 3).value = "Mengetahui :";
+  ws.getCell(sigStart + 2, 3).font = META_FONT;
+  ws.getCell(sigStart + 2, 72).value = "Pemegang  Program Kesehatan Lansia :";
+  ws.getCell(sigStart + 2, 72).font = META_FONT;
+
+  ws.getCell(sigStart + 3, 3).value = `Kepala UPTD. Puskesmas ${cleanPusk}`;
+  ws.getCell(sigStart + 3, 3).font = META_FONT;
+
+  const arrayBuffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
 }

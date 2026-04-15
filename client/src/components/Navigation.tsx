@@ -6,27 +6,30 @@ interface NavigationProps {
   currentPage: string;
   onPageChange: (page: string) => void;
   isAuthed: boolean;
+  userRole?: "superadmin" | "admin" | "officer";
   onShowLogin: () => void;
   onLogout: () => void;
 }
 
-export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin, onLogout }: NavigationProps) {
+export function Navigation({ currentPage, onPageChange, isAuthed, userRole, onShowLogin, onLogout }: NavigationProps) {
   const handleLogout = () => {
     onLogout();
   };
 
   const publicNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: 'dashboard', label: 'Dasbor', icon: Home },
+    { id: 'help', label: 'Bantuan', icon: HelpCircle },
   ];
 
   const authenticatedNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'upload', label: 'Upload', icon: Upload },
-    { id: 'preview', label: 'Preview', icon: FileText },
-    { id: 'account', label: 'Account', icon: User },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'help', label: 'Help', icon: HelpCircle },
+    { id: 'dashboard', label: 'Dasbor', icon: Home },
+    { id: 'upload', label: 'Unggah', icon: Upload },
+    { id: 'preview', label: 'Pratinjau', icon: FileText },
+    { id: 'account', label: 'Akun', icon: User },
+    ...(userRole === "admin" || userRole === "superadmin"
+      ? [{ id: 'users', label: 'Pengguna', icon: Users }]
+      : []),
+    { id: 'help', label: 'Bantuan', icon: HelpCircle },
   ];
 
   const navItems = isAuthed ? authenticatedNavItems : publicNavItems;
@@ -44,10 +47,10 @@ export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin, o
       <div className="max-w-7xl mx-auto px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 600 }}>Elder Care</h1>
+            <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 600 }}>Sahabat Lansia</h1>
             {!isAuthed && (
               <Badge variant="outline" className="px-2.5 py-0.5">
-                Guest Mode
+                Mode Tamu
               </Badge>
             )}
           </div>
@@ -61,7 +64,7 @@ export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin, o
                 className="gap-2 transition-all duration-200 hover:scale-[1.03] active:scale-[0.97]"
               >
                 <LogIn size={18} />
-                Login
+                Masuk
               </Button>
             ) : (
               <Button
@@ -70,7 +73,7 @@ export function Navigation({ currentPage, onPageChange, isAuthed, onShowLogin, o
                 className="gap-2 transition-all duration-200 hover:scale-[1.03] active:scale-[0.97]"
               >
                 <LogOut size={18} />
-                Logout
+                Keluar
               </Button>
             )}
           </div>

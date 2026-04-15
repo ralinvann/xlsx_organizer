@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/User";
 import cloudinary from "../config/cloudinary";
 import { requireAuth } from "../middleware/auth";
 import { logActivity } from "../utils/activityLogger";
+import { sendEmail } from "../utils/sendEmail";
 
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
@@ -202,5 +204,157 @@ export const getCurrentUser = async (
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err });
+  }
+};
+
+// ─── Forgot Password ─────────────────────────────────────────────────────────
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ message: "Email wajib diisi." });
+      return;
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      // Don't reveal whether the email exists
+      res.status(200).json({ message: "Jika email terdaftar, link reset password telah dikirim." });
+      return;
+    }
+
+    // Generate a secure random token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+    user.resetPasswordToken = tokenHash;
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    const resetUrl = `${CLIENT_URL}?resetToken=${resetToken}&email=${encodeURIComponent(user.email)}`;
+
+    await sendEmail({
+      to: user.email,
+      subject: "Elder Care - Reset Password",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #333;">Reset Password</h2>
+          <p>Halo <strong>${user.firstName}</strong>,</p>
+          <p>Kami menerima permintaan untuk mereset password akun Anda. Klik tombol di bawah untuk membuat password baru:</p>
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${resetUrl}"
+               style="background-color: #0f172a; color: #fff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+              Reset Password
+            </a>
+          </div>
+          <p style="color: #666; font-size: 14px;">Link ini berlaku selama <strong>1 jam</strong>. Jika Anda tidak meminta reset password, abaikan email ini.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+          <p style="color: #999; font-size: 12px;">Elder Care - Sistem Monitoring Kesehatan Lansia</p>
+        </div>
+      `,
+    });
+
+    res.status(200).json({ message: "Jika email terdaftar, link reset password telah dikirim." });
+  } catch (err) {
+    console.error("forgotPassword error:", err);
+    res.status(500).json({ message: "Gagal mengirim email reset password." });
+  }
+};
+
+// ─── Reset Password ──────────────────────────────────────────────────────────
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, email, newPassword } = req.body;
+    if (!token || !email || !newPassword) {
+      res.status(400).json({ message: "Token, email, dan password baru wajib diisi." });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      res.status(400).json({ message: "Password minimal 6 karakter." });
+      return;
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      resetPasswordToken: tokenHash,
+      resetPasswordExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      res.status(400).json({ message: "Token tidak valid atau sudah kadaluarsa." });
+      return;
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.status(200).json({ message: "Password berhasil direset. Silakan login dengan password baru." });
+  } catch (err) {
+    console.error("resetPassword error:", err);
+    res.status(500).json({ message: "Gagal mereset password." });
+  }
+};
+
+// ─── Change Password (Authenticated) ────────────────────────────────────────
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user?.id) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const { oldPassword, newPassword, confirmPassword } = req.body;
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      res.status(400).json({ message: "Password lama, password baru, dan konfirmasi wajib diisi." });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      res.status(400).json({ message: "Password baru minimal 6 karakter." });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      res.status(400).json({ message: "Konfirmasi password tidak cocok." });
+      return;
+    }
+
+    if (oldPassword === newPassword) {
+      res.status(400).json({ message: "Password baru harus berbeda dari password lama." });
+      return;
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      res.status(404).json({ message: "User tidak ditemukan." });
+      return;
+    }
+
+    const validOldPassword = await bcrypt.compare(oldPassword, user.password);
+    if (!validOldPassword) {
+      res.status(400).json({ message: "Password lama salah." });
+      return;
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    await logActivity({
+      userId: String(user._id),
+      action: "password_change",
+      details: "Mengubah password akun",
+    });
+
+    res.status(200).json({ message: "Password berhasil diubah." });
+  } catch (err) {
+    console.error("changePassword error:", err);
+    res.status(500).json({ message: "Gagal mengubah password." });
   }
 };

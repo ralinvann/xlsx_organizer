@@ -4,16 +4,16 @@ import { Badge } from "./ui/badge";
 import { Alert, AlertDescription } from "./ui/alert";
 import {
   Users,
-  Activity,
   TrendingUp,
   Lock,
   Eye,
   Download,
   RotateCw,
-  Heart,
   ClipboardCheck,
-  UserCheck,
   BarChart3,
+  MapPin,
+  Calendar,
+  ShieldCheck,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
@@ -76,6 +76,9 @@ interface DashboardData {
   empowermentCount: number;
   independenceLevels: { A: number; B: number; C: number };
   genderBreakdown: { male: number; female: number };
+  lastUpdated?: string;
+  puskesmasCount?: number;
+  desaCount?: number;
 }
 
 const defaultDashboardData: DashboardData = {
@@ -89,6 +92,9 @@ const defaultDashboardData: DashboardData = {
   empowermentCount: 0,
   independenceLevels: { A: 0, B: 0, C: 0 },
   genderBreakdown: { male: 0, female: 0 },
+  lastUpdated: "",
+  puskesmasCount: 0,
+  desaCount: 0,
 };
 
 function compactNumber(value: number): string {
@@ -106,11 +112,11 @@ function percentValue(part: number, total: number): number {
 }
 
 const CHART_COLORS = {
-  primary: "hsl(var(--primary))",
-  secondary: "#10b981",
-  tertiary: "#f59e0b",
-  accent: "#ec4899",
-  muted: "#94a3b8",
+  primary: "var(--chart-1)",
+  secondary: "var(--chart-2)",
+  tertiary: "var(--chart-3)",
+  quaternary: "var(--chart-4)",
+  muted: "var(--chart-5)",
 };
 
 export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
@@ -154,14 +160,19 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   }, []);
 
   const totalElderlyRecorded = dashboardData.totalPraLansia + dashboardData.totalLansia;
-  const totalServicesDelivered = dashboardData.screenedLansia + dashboardData.empowermentCount;
-  const penyuluhanPercentage = percentValue(dashboardData.screenedLansia, totalElderlyRecorded);
-  const pemberdayaanPercentage = percentValue(dashboardData.empowermentCount, totalElderlyRecorded);
-
   const serviceCoverageData = [
-    { name: "Penyuluhan", value: dashboardData.screenedLansia, fill: CHART_COLORS.primary },
+    { name: "Skrining", value: dashboardData.screenedLansia, fill: CHART_COLORS.primary },
     { name: "Pemberdayaan", value: dashboardData.empowermentCount, fill: CHART_COLORS.secondary },
   ];
+
+  const totalGender = dashboardData.genderBreakdown.male + dashboardData.genderBreakdown.female;
+  const malePercent = percentValue(dashboardData.genderBreakdown.male, totalGender);
+  const femalePercent = 100 - malePercent;
+  const genderChartData = [
+    { name: "Laki-laki", value: dashboardData.genderBreakdown.male, fill: CHART_COLORS.primary },
+    { name: "Perempuan", value: dashboardData.genderBreakdown.female, fill: CHART_COLORS.secondary },
+  ];
+  const totalIndependence = dashboardData.independenceLevels.A + dashboardData.independenceLevels.B + dashboardData.independenceLevels.C;
 
   const receivedBoth = Math.min(dashboardData.screenedLansia, dashboardData.empowermentCount);
   const receivedOne = Math.abs(dashboardData.screenedLansia - dashboardData.empowermentCount);
@@ -176,9 +187,6 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   const atLeastOneServicePercentage = percentValue(totalElderlyRecorded - receivedNone, totalElderlyRecorded);
   const bothServicesPercentage = percentValue(receivedBoth, totalElderlyRecorded);
   const totalServiceInteractions = dashboardData.screenedLansia + dashboardData.empowermentCount;
-  const averageServicesPerPerson = totalElderlyRecorded > 0
-    ? (totalServiceInteractions / totalElderlyRecorded).toFixed(2)
-    : "0.00";
 
   const handleDialogOpen = () => {
     setShowReportDialog(true);
@@ -277,9 +285,9 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   };
 
   function getProgressColor(value: number): string {
-    if (value >= 70) return "bg-green-500";
-    if (value >= 40) return "bg-yellow-500";
-    return "bg-red-500";
+    if (value >= 70) return CHART_COLORS.primary;
+    if (value >= 40) return CHART_COLORS.tertiary;
+    return CHART_COLORS.quaternary;
   }
 
   const btnAnim = "transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]";
@@ -287,12 +295,12 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
   return (
     <div className="p-6 space-y-6">
       {userStatus === "guest" && (
-        <Alert className="bg-blue-50 border-blue-200">
-          <Eye className="h-4 w-4 text-blue-600" />
+        <Alert className="bg-primary/10 border-primary/20">
+          <Eye className="h-4 w-4 text-primary" />
           <AlertDescription className="text-sm">
-            Anda sedang dalam mode guest. Beberapa data dibatasi untuk melindungi privasi pasien.
-            <Button variant="link" className="p-0 h-auto ml-1 text-blue-600" onClick={() => onLoginClick?.()}>
-              Login untuk akses penuh
+            Anda sedang dalam mode tamu. Beberapa data dibatasi untuk melindungi privasi pasien.
+            <Button variant="link" className="p-0 h-auto ml-1 text-primary" onClick={() => onLoginClick?.()}>
+              Masuk untuk akses penuh
             </Button>
           </AlertDescription>
         </Alert>
@@ -306,13 +314,13 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Dashboard Utama</h2>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Dasbor Utama</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Ringkasan aktivitas kesehatan lansia hari ini
             {userStatus === "guest" && (
               <Badge variant="outline" className="ml-2 text-xs">
                 <Eye className="w-3 h-3 mr-1" />
-                Guest View
+                Tampilan Tamu
               </Badge>
             )}
           </p>
@@ -323,66 +331,56 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
           className={`gap-2 ${btnAnim}`}
         >
           <Download className="w-4 h-4" />
-          Download Laporan
+          Unduh Laporan
           {userStatus === "guest" && <Lock className="w-3 h-3 ml-1" />}
         </Button>
       </div>
 
-      {/* Hero Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-foreground">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Total Lansia Tercatat</p>
-                <p className="text-2xl" style={{ fontWeight: 700 }}>{loading ? "..." : compactNumber(totalElderlyRecorded)}</p>
-              </div>
-              <div className="p-3 rounded-full bg-muted">
-                <Users className="w-6 h-6 text-foreground" />
-              </div>
-            </div>
+      {/* Coverage Info Strip */}
+      {!loading && ((dashboardData.puskesmasCount ?? 0) > 0 || (dashboardData.desaCount ?? 0) > 0 || dashboardData.lastUpdated) && (
+        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground border-b pb-3">
+          {(dashboardData.puskesmasCount ?? 0) > 0 && (
+            <span className="flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-primary" />
+              <strong className="text-foreground">{dashboardData.puskesmasCount}</strong> puskesmas aktif
+            </span>
+          )}
+          {(dashboardData.desaCount ?? 0) > 0 && (
+            <span className="flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-primary" />
+              <strong className="text-foreground">{dashboardData.desaCount}</strong> desa terlayani
+            </span>
+          )}
+          {dashboardData.lastUpdated && (
+            <span className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-primary" />
+              Terakhir diperbarui: <strong className="text-foreground ml-1">{dashboardData.lastUpdated}</strong>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Age Group Breakdown */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="shadow-sm border-l-4 border-l-primary">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Pra-Lansia (45–59 thn)</p>
+            <p className="text-2xl text-primary" style={{ fontWeight: 700 }}>{loading ? "..." : compactNumber(dashboardData.totalPraLansia)}</p>
+            <p className="text-xs text-muted-foreground mt-1">orang terdaftar</p>
           </CardContent>
         </Card>
-
-        <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-green-500">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Total Layanan Diberikan</p>
-                <p className="text-2xl text-green-600" style={{ fontWeight: 700 }}>{loading ? "..." : compactNumber(totalServicesDelivered)}</p>
-              </div>
-              <div className="p-3 rounded-full bg-green-100">
-                <Heart className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
+        <Card className="shadow-sm border-l-4 border-l-primary">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Lansia (≥60 thn)</p>
+            <p className="text-2xl text-primary" style={{ fontWeight: 700 }}>{loading ? "..." : compactNumber(dashboardData.totalLansia)}</p>
+            <p className="text-xs text-muted-foreground mt-1">orang terdaftar</p>
           </CardContent>
         </Card>
-
-        <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Menerima Penyuluhan</p>
-                <p className="text-2xl text-blue-600" style={{ fontWeight: 700 }}>{loading ? "..." : `${penyuluhanPercentage}%`}</p>
-              </div>
-              <div className="p-3 rounded-full bg-blue-100">
-                <ClipboardCheck className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-purple-500">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Menerima Pemberdayaan</p>
-                <p className="text-2xl text-purple-600" style={{ fontWeight: 700 }}>{loading ? "..." : `${pemberdayaanPercentage}%`}</p>
-              </div>
-              <div className="p-3 rounded-full bg-purple-100">
-                <UserCheck className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
+        <Card className="shadow-sm border-l-4 border-l-primary">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Lansia Risti (≥70 thn)</p>
+            <p className="text-2xl text-primary" style={{ fontWeight: 700 }}>{loading ? "..." : compactNumber(dashboardData.totalLansiaRisti)}</p>
+            <p className="text-xs text-muted-foreground mt-1">risiko tinggi</p>
           </CardContent>
         </Card>
       </div>
@@ -413,10 +411,10 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
               </ResponsiveContainer>
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <div className="p-2.5 bg-muted rounded-lg">
-                  <p className="text-xs text-muted-foreground">Penyuluhan</p>
+                  <p className="text-xs text-muted-foreground">Skrining</p>
                   <p style={{ fontWeight: 600, fontSize: "1.125rem" }}>{compactNumber(dashboardData.screenedLansia)}</p>
                 </div>
-                <div className="p-2.5 bg-green-100 rounded-lg">
+                <div className="p-2.5 bg-primary/10 rounded-lg">
                   <p className="text-xs text-muted-foreground">Pemberdayaan</p>
                   <p style={{ fontWeight: 600, fontSize: "1.125rem" }}>{compactNumber(dashboardData.empowermentCount)}</p>
                 </div>
@@ -440,7 +438,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
                   <p className="text-xs text-muted-foreground">Kedua</p>
                   <p style={{ fontWeight: 600 }}>{compactNumber(receivedBoth)}</p>
                 </div>
-                <div className="p-2 bg-yellow-100 rounded">
+                <div className="p-2 bg-primary/10 rounded">
                   <p className="text-xs text-muted-foreground">Satu</p>
                   <p style={{ fontWeight: 600 }}>{compactNumber(receivedOne)}</p>
                 </div>
@@ -467,12 +465,12 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <p className="text-sm">Lansia Menerima Minimal Satu Layanan</p>
-                <span className={`text-sm ${atLeastOneServicePercentage >= 70 ? 'text-green-600' : atLeastOneServicePercentage >= 40 ? 'text-yellow-600' : 'text-red-600'}`} style={{ fontWeight: 600 }}>
+                <span className="text-sm text-primary" style={{ fontWeight: 600 }}>
                   {atLeastOneServicePercentage}%
                 </span>
               </div>
               <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                <div className={`h-full transition-all duration-500 ${getProgressColor(atLeastOneServicePercentage)}`} style={{ width: `${atLeastOneServicePercentage}%` }} />
+                <div className="h-full transition-all duration-500" style={{ width: `${atLeastOneServicePercentage}%`, backgroundColor: getProgressColor(atLeastOneServicePercentage) }} />
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {compactNumber(totalElderlyRecorded - receivedNone)} dari {compactNumber(totalElderlyRecorded)} lansia
@@ -482,12 +480,12 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <p className="text-sm">Lansia Menerima Kedua Layanan</p>
-                <span className={`text-sm ${bothServicesPercentage >= 70 ? 'text-green-600' : bothServicesPercentage >= 40 ? 'text-yellow-600' : 'text-red-600'}`} style={{ fontWeight: 600 }}>
+                <span className="text-sm text-primary" style={{ fontWeight: 600 }}>
                   {bothServicesPercentage}%
                 </span>
               </div>
               <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                <div className={`h-full transition-all duration-500 ${getProgressColor(bothServicesPercentage)}`} style={{ width: `${bothServicesPercentage}%` }} />
+                <div className="h-full transition-all duration-500" style={{ width: `${bothServicesPercentage}%`, backgroundColor: getProgressColor(bothServicesPercentage) }} />
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {compactNumber(receivedBoth)} dari {compactNumber(totalElderlyRecorded)} lansia
@@ -495,19 +493,19 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-4 border-t">
-              <div className="text-center p-3 bg-green-50 rounded-lg">
+              <div className="text-center p-3 bg-primary/10 rounded-lg">
                 <p className="text-xs text-muted-foreground mb-1">Cakupan Tinggi</p>
-                <p className="text-green-600" style={{ fontSize: "1.25rem", fontWeight: 700 }}>&ge; 70%</p>
+                <p className="text-primary" style={{ fontSize: "1.25rem", fontWeight: 700 }}>&ge; 70%</p>
                 <p className="text-xs text-muted-foreground mt-1">Target Optimal</p>
               </div>
-              <div className="text-center p-3 bg-yellow-50 rounded-lg">
+              <div className="text-center p-3 bg-primary/10 rounded-lg">
                 <p className="text-xs text-muted-foreground mb-1">Cakupan Sedang</p>
-                <p className="text-yellow-600" style={{ fontSize: "1.25rem", fontWeight: 700 }}>40-69%</p>
+                <p className="text-primary" style={{ fontSize: "1.25rem", fontWeight: 700 }}>40-69%</p>
                 <p className="text-xs text-muted-foreground mt-1">Perlu Peningkatan</p>
               </div>
-              <div className="text-center p-3 bg-red-50 rounded-lg">
+              <div className="text-center p-3 bg-muted rounded-lg">
                 <p className="text-xs text-muted-foreground mb-1">Cakupan Rendah</p>
-                <p className="text-red-600" style={{ fontSize: "1.25rem", fontWeight: 700 }}>&lt; 40%</p>
+                <p className="text-foreground" style={{ fontSize: "1.25rem", fontWeight: 700 }}>&lt; 40%</p>
                 <p className="text-xs text-muted-foreground mt-1">Perlu Perhatian</p>
               </div>
             </div>
@@ -515,66 +513,93 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
         </CardContent>
       </Card>
 
-      {/* Activity Summary */}
-      <Card className="shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2" style={{ fontSize: "1.125rem" }}>
-            <Activity className="w-5 h-5" />
-            Ringkasan Aktivitas
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-center gap-3 p-4 bg-white rounded-lg shadow-sm">
-              <div className="p-2.5 bg-blue-100 rounded-full">
-                <ClipboardCheck className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Total Interaksi Layanan</p>
-                <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>{compactNumber(totalServiceInteractions)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 p-4 bg-white rounded-lg shadow-sm">
-              <div className="p-2.5 bg-purple-100 rounded-full">
-                <Users className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Rata-rata Layanan/Orang</p>
-                <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>{averageServicesPerPerson}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 p-4 bg-white rounded-lg shadow-sm">
-              <div className="p-2.5 bg-green-100 rounded-full">
-                <TrendingUp className="w-5 h-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Kemandirian Level A</p>
-                <p style={{ fontSize: "1.25rem", fontWeight: 700 }}>{percent(dashboardData.independenceLevels.A, dashboardData.totalLansia)}</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Gender & Independence */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Gender Breakdown */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2" style={{ fontSize: "1rem" }}>
+              <Users className="w-4 h-4" />
+              Sebaran Jenis Kelamin
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {totalGender > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie data={genderChartData} cx="50%" cy="50%" innerRadius={45} outerRadius={65} paddingAngle={4} dataKey="value">
+                      {genderChartData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div className="p-2.5 bg-primary/10 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Laki-laki</p>
+                    <p className="text-primary" style={{ fontWeight: 700, fontSize: "1.125rem" }}>{compactNumber(dashboardData.genderBreakdown.male)}</p>
+                    <p className="text-xs text-muted-foreground">{malePercent}%</p>
+                  </div>
+                  <div className="p-2.5 bg-primary/10 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Perempuan</p>
+                    <p className="text-primary" style={{ fontWeight: 700, fontSize: "1.125rem" }}>{compactNumber(dashboardData.genderBreakdown.female)}</p>
+                    <p className="text-xs text-muted-foreground">{femalePercent}%</p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-10">Data belum tersedia</p>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {[
-          { label: "Total Laporan", value: dashboardData.totalReports ?? 0 },
-          { label: "Total Baris", value: dashboardData.totalRowsScanned ?? 0 },
-          { label: "Baris Valid", value: dashboardData.validRowsScanned ?? 0 },
-          { label: "Pra Lansia", value: dashboardData.totalPraLansia },
-          { label: "Pemberdayaan", value: dashboardData.empowermentCount },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-lg border bg-card p-3">
-            <p className="text-xs text-muted-foreground">{stat.label}</p>
-            <p style={{ fontSize: "1.125rem", fontWeight: 600 }}>{loading ? "..." : compactNumber(stat.value)}</p>
-          </div>
-        ))}
+        {/* Independence Levels */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2" style={{ fontSize: "1rem" }}>
+              <ShieldCheck className="w-4 h-4" />
+              Tingkat Kemandirian Lansia
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4 pt-1">
+              {[
+                { label: "Level A – Mandiri", value: dashboardData.independenceLevels.A, color: CHART_COLORS.primary },
+                { label: "Level B – Perlu Bantuan", value: dashboardData.independenceLevels.B, color: CHART_COLORS.secondary },
+                { label: "Level C – Ketergantungan", value: dashboardData.independenceLevels.C, color: CHART_COLORS.tertiary },
+              ].map(({ label, value, color }) => (
+                <div key={label}>
+                  <div className="flex justify-between items-center mb-1">
+                    <p className="text-sm">{label}</p>
+                    <span className="text-sm" style={{ fontWeight: 600, color }}>
+                      {compactNumber(value)} ({percent(value, totalIndependence)})
+                    </span>
+                  </div>
+                  <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full transition-all duration-500" style={{ width: `${percentValue(value, totalIndependence)}%`, backgroundColor: color }} />
+                  </div>
+                </div>
+              ))}
+              <div className="pt-2 border-t">
+                <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+                  <ClipboardCheck className="w-4 h-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total Interaksi Layanan</p>
+                    <p style={{ fontWeight: 700 }}>{loading ? "..." : compactNumber(totalServiceInteractions)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Guest CTA */}
       {userStatus === "guest" && (
-        <Card className="shadow-sm bg-gradient-to-r from-muted to-blue-50 border-border">
+        <Card className="shadow-sm bg-gradient-to-r from-muted to-primary/10 border-border">
           <CardContent className="p-5">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -584,13 +609,13 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
                 <div>
                   <h3 style={{ fontSize: "1.125rem", fontWeight: 600 }} className="mb-0.5">Akses Penuh Tersedia</h3>
                   <p className="text-sm text-muted-foreground">
-                    Login untuk mengelola dan mengupload data perawatan lansia bulanan
+                    Masuk untuk mengelola dan mengunggah data perawatan lansia bulanan
                   </p>
                 </div>
               </div>
               <Button onClick={() => onLoginClick?.()} className={`gap-2 whitespace-nowrap ${btnAnim}`}>
                 <Lock className="w-4 h-4" />
-                Login Sekarang
+                Masuk Sekarang
               </Button>
             </div>
           </CardContent>
@@ -601,7 +626,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
       <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader className="space-y-2">
-            <DialogTitle style={{ fontSize: "1.25rem" }}>Download Laporan</DialogTitle>
+            <DialogTitle style={{ fontSize: "1.25rem" }}>Unduh Laporan</DialogTitle>
             <DialogDescription className="text-sm">
               Pilih jenis laporan yang ingin diunduh
             </DialogDescription>
@@ -667,13 +692,13 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
                   </div>
                 )}
                 {reportExists === true && (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-md text-sm text-green-700 flex items-center gap-2">
+                  <div className="p-3 bg-primary/10 border border-primary/20 rounded-md text-sm text-primary flex items-center gap-2">
                     <span>&#10003;</span>
                     <span>Laporan tersedia dan siap untuk diunduh</span>
                   </div>
                 )}
                 {reportExists === false && (
-                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-700 flex items-center gap-2">
+                  <div className="p-3 bg-muted border border-border rounded-md text-sm text-muted-foreground flex items-center gap-2">
                     <span>&#9888;</span>
                     <span>Laporan untuk bulan {selectedMonth} {selectedYear} belum tersedia</span>
                   </div>
@@ -697,7 +722,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-700">
+              <div className="p-3 bg-primary/10 border border-primary/20 rounded-md text-sm text-primary">
                 Mengunduh dua file: <strong>Laporan A</strong> (rekap per desa) dan <strong>Laporan B</strong> (daftar individu), masing-masing berisi 12 sheet per bulan.
               </div>
               {errorMsg && (
@@ -718,7 +743,7 @@ export function Dashboard({ userStatus, onLoginClick }: DashboardProps) {
 
             {dialogMode === "monthly" && (
               <Button
-                className={`${btnAnim} ${reportExists === true ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
+                className={`${btnAnim} ${reportExists === true ? "bg-primary hover:bg-primary/90 text-white" : ""}`}
                 onClick={reportExists === true ? handleDownloadReport : handleSearchReport}
                 disabled={
                   reportExists === true

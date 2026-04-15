@@ -3,6 +3,7 @@ import mongoose, { Document, Schema, Types } from "mongoose";
 export type ActivityAction =
   | "login"
   | "logout"
+  | "password_change"
   | "profile_update"
   | "file_upload"
   | "file_delete";
@@ -21,7 +22,7 @@ const ActivityLogSchema = new Schema<IActivityLog>(
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     action: {
       type: String,
-      enum: ["login", "logout", "profile_update", "file_upload", "file_delete"],
+      enum: ["login", "logout", "password_change", "profile_update", "file_upload", "file_delete"],
       required: true,
       index: true,
     },
