@@ -9,13 +9,16 @@ import apiRoutes from './routes';
 dotenv.config({ path: './.env' });
 
 const app = express();
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://xlsx-organizer.onrender.com',
+  'https://sahabat-lansia.onrender.com',
+  process.env.CLIENT_ORIGIN,
+].filter((origin): origin is string => Boolean(origin && origin.trim()));
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'https://xlsx-organizer.onrender.com',
-    'https://sahabat-lansia.onrender.com',
-  ],
+  origin: allowedOrigins,
   credentials: true,
 }));
 
