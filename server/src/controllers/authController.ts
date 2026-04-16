@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { CookieOptions, Request, Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
@@ -10,11 +10,37 @@ import { sendEmail } from "../utils/sendEmail";
 
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
+function shouldUseSecureCookies(req: Request): boolean {
+  const forwardedProto = req.get("x-forwarded-proto");
+  return req.secure || forwardedProto === "https" || req.hostname.endsWith(".onrender.com");
+}
+
+function getAuthCookieOptions(req: Request, maxAge: number): CookieOptions {
+  const useSecureCookies = shouldUseSecureCookies(req);
+
+  return {
+    httpOnly: true,
+    sameSite: useSecureCookies ? "none" : "lax",
+    secure: useSecureCookies,
+    maxAge,
+    path: "/",
+  };
+}
+
+function normalizeEmail(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export const signup = async (req: Request, res: Response): Promise<void> => {
   const { firstName, middleName, lastName, email, password, profilePicture, phone, workLocation } = req.body;
+  const normalizedEmail = normalizeEmail(email);
 
   try {
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i") });
     if (existing) {
       res.status(409).json({ message: "User already exists" });
       return;
@@ -34,7 +60,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       firstName,
       middleName: String(middleName ?? "").trim(),
       lastName,
-      email,
+      email: normalizedEmail,
       password: hashed,
       role: "officer",
       profilePicture: uploadedPicture,
@@ -48,14 +74,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       { expiresIn: "7d" }
     );
 
-    const isProd = process.env.NODE_ENV === "production";
-    res.cookie("token", token, {
-      httpOnly: true,
-      sameSite: isProd ? "none" : "lax",
-      secure: isProd,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
+    res.cookie("token", token, getAuthCookieOptions(req, 7 * 24 * 60 * 60 * 1000));
 
     res.status(201).json({
       message: "User created successfully",
@@ -78,10 +97,11 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const login = async (req: Request, res: Response): Promise<void> => {
-  const { email, password } = req.body;
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password ?? "");
 
   try {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: new RegExp(`^${escapeRegex(email)}$`, "i") });
     if (!user) {
       res.status(401).json({ message: "Invalid credentials" });
       return;
@@ -101,7 +121,6 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     // Remember-me option: client may pass `remember: true` to prolong cookie
     const remember = Boolean(req.body?.remember);
-    const isProd = process.env.NODE_ENV === "production";
     const maxAge = remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     const tokenExpiresIn = remember ? "30d" : "1d";
 
@@ -118,13 +137,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       metadata: { ip: clientIP },
     });
 
-    res.cookie("token", token, {
-      httpOnly: true,
-      sameSite: isProd ? "none" : "lax",
-      secure: isProd,
-      maxAge,
-      path: "/",
-    });
+    res.cookie("token", token, getAuthCookieOptions(req, maxAge));
 
     res.status(200).json({
       token,
@@ -157,8 +170,8 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
       });
     }
 
-    const isProd = process.env.NODE_ENV === "production";
-    res.clearCookie("token", { httpOnly: true, sameSite: isProd ? "none" : "lax", secure: isProd, path: "/" });
+    const secure = shouldUseSecureCookies(req);
+    res.clearCookie("token", { httpOnly: true, sameSite: secure ? "none" : "lax", secure, path: "/" });
     res.status(200).json({ message: "Logged out" });
   } catch (err) {
     res.status(500).json({ message: "Logout failed", error: err });
@@ -212,13 +225,13 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 
 export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body?.email);
     if (!email) {
       res.status(400).json({ message: "Email wajib diisi." });
       return;
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const user = await User.findOne({ email: new RegExp(`^${escapeRegex(email)}$`, "i") });
     if (!user) {
       // Don't reveal whether the email exists
       res.status(200).json({ message: "Jika email terdaftar, link reset password telah dikirim." });
@@ -278,9 +291,10 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
     }
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const normalizedEmail = normalizeEmail(email);
 
     const user = await User.findOne({
-      email: email.toLowerCase().trim(),
+      email: new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i"),
       resetPasswordToken: tokenHash,
       resetPasswordExpires: { $gt: new Date() },
     });

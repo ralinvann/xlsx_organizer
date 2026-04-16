@@ -9,18 +9,40 @@ import apiRoutes from './routes';
 dotenv.config({ path: './.env' });
 
 const app = express();
+app.set('trust proxy', 1);
+
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'https://xlsx-organizer.onrender.com',
   'https://sahabat-lansia.onrender.com',
-  process.env.CLIENT_ORIGIN,
-].filter((origin): origin is string => Boolean(origin && origin.trim()));
+  ...(process.env.CLIENT_ORIGIN ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
 
-app.use(cors({
-  origin: allowedOrigins,
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(cookieParser());
 
