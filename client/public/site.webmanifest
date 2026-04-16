@@ -1,0 +1,8 @@
+{
+  "name": "Sahabat Lansia",
+  "short_name": "Sahabat Lansia",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff"
+}
