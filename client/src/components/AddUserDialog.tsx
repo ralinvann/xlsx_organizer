@@ -60,7 +60,6 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
     setFormSuccess(null);
 
     if (!firstName.trim()) { setFormError("Nama depan wajib diisi."); return; }
-    if (!lastName.trim()) { setFormError("Nama belakang wajib diisi."); return; }
     if (!email.includes("@")) { setFormError("Email tidak valid."); return; }
     if (password.length < 8) { setFormError("Password minimal 8 karakter."); return; }
     if (!role) { setFormError("Peran wajib dipilih."); return; }
@@ -146,7 +145,7 @@ export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogPr
 
             <div className="space-y-1.5"><Label className="text-sm">Nama Depan *</Label><Input className="h-9" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
             <div className="space-y-1.5"><Label className="text-sm">Nama Tengah (Opsional)</Label><Input className="h-9" value={middleName} onChange={(e) => setMiddleName(e.target.value)} /></div>
-            <div className="space-y-1.5"><Label className="text-sm">Nama Belakang *</Label><Input className="h-9" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label className="text-sm">Nama Belakang (Opsional)</Label><Input className="h-9" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
             <div className="space-y-1.5"><Label className="text-sm">Email *</Label><Input type="email" className="h-9" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
 
             <div className="space-y-1.5">

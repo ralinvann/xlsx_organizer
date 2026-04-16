@@ -21,7 +21,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const phone = String(req.body.phone ?? "").trim();
     const workLocation = String(req.body.workLocation ?? "").trim();
 
-    if (!firstName || !lastName || !email || !password) {
+    if (!firstName || !email || !password) {
       res.status(400).json({ message: "Missing required fields" });
       return;
     }
@@ -328,7 +328,7 @@ export const createUserByAdmin = async (req: Request, res: Response): Promise<vo
     const phone = String(req.body.phone ?? "").trim();
     const workLocation = String(req.body.workLocation ?? "").trim();
 
-    if (!firstName || !lastName || !email || !password) {
+    if (!firstName || !email || !password) {
       res.status(400).json({ message: "Missing required fields" });
       return;
     }
