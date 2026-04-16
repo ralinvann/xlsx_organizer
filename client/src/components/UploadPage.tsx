@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Upload, FileText, CheckCircle } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
@@ -374,31 +375,21 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
                 File ini memiliki beberapa lembar kerja. Pilih tepat satu lembar kerja untuk dilanjutkan ke pratinjau dan unggah.
               </p>
 
-              <div className="grid gap-3">
-                {pendingWorksheets.map((worksheet, idx) => {
-                  const isSelected = selectedWorksheetIndex === idx;
-                  return (
-                    <button
-                      key={worksheet.worksheetName}
-                      type="button"
-                      onClick={() => setSelectedWorksheetIndex(idx)}
-                      className={`w-full text-left border rounded-lg p-4 transition-colors ${isSelected ? "border-foreground bg-muted" : "border-border bg-background hover:bg-muted/40"}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm" style={{ fontWeight: 600 }}>{worksheet.worksheetName}</div>
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Puskesmas: {worksheet.puskesmas || "-"} | Bulan/Tahun: {worksheet.bulanTahun || "-"}
-                          </div>
-                        </div>
-                        <Badge variant={isSelected ? "secondary" : "outline"}>
-                          {isSelected ? "Dipilih" : "Pilih"}
-                        </Badge>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <Select
+                value={selectedWorksheetIndex !== null ? String(selectedWorksheetIndex) : undefined}
+                onValueChange={(v) => setSelectedWorksheetIndex(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih worksheet..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {pendingWorksheets.map((worksheet, idx) => (
+                    <SelectItem key={worksheet.worksheetName} value={String(idx)}>
+                      {worksheet.worksheetName} — {worksheet.puskesmas || "-"} | {worksheet.bulanTahun || "-"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
               <div className="flex justify-end">
                 <Button onClick={handleConfirmWorksheetSelection} className={btnAnim}>
@@ -409,29 +400,6 @@ export function UploadPage({ onNavigate }: UploadPageProps) {
           </CardContent>
         </Card>
       )}
-
-      {/* Guidelines */}
-      <Card className="shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle style={{ fontSize: "1.125rem" }}>Panduan Format Data</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <h4 className="text-sm mb-2" style={{ fontWeight: 600 }}>Kolom Wajib:</h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>&#8226; Nama Lengkap</li><li>&#8226; Nomor KTP/NIK</li><li>&#8226; Tanggal Lahir</li><li>&#8226; Alamat</li><li>&#8226; Nomor Telepon</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-sm mb-2" style={{ fontWeight: 600 }}>Data Kesehatan:</h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>&#8226; Tekanan Darah</li><li>&#8226; Gula Darah</li><li>&#8226; Berat & Tinggi Badan</li><li>&#8226; Riwayat Penyakit</li><li>&#8226; Obat yang Dikonsumsi</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

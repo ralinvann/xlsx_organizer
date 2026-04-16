@@ -475,6 +475,7 @@ export const createElderlyMonthlyReport = async (
         sourceSheetName: firstWs.sourceSheetName,
         mergeRanges: firstWs.mergeRanges,
         status: "imported",
+        createdBy: req.user?.id || undefined,
       });
 
       await upsertPersonsFromReport(doc);
@@ -569,6 +570,7 @@ export const createElderlyMonthlyReport = async (
       sourceSheetName,
       mergeRanges,
       status: "imported",
+      createdBy: req.user?.id || undefined,
     });
 
     await upsertPersonsFromReport(doc);

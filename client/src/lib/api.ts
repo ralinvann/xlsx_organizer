@@ -37,6 +37,11 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as AxiosRequestConfig & { _retry?: boolean };
     if (!original) throw error;
+    const requestUrl = String(original.url || "");
+    const isAuthEntryRequest =
+      requestUrl.includes("/auth/login") ||
+      requestUrl.includes("/auth/forgot-password") ||
+      requestUrl.includes("/auth/reset-password");
 
     const isNetworkError =
       error.code === "ECONNABORTED" ||
@@ -48,7 +53,7 @@ api.interceptors.response.use(
     }
 
     // 401 → force logout (but don't remove tokens from localStorage since we use cookies now)
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isAuthEntryRequest) {
       localStorage.removeItem("user");
 
       window.dispatchEvent(new Event("auth-logout"));

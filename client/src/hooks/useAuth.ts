@@ -79,7 +79,10 @@ export function useAuth() {
       setReady(true);
       return { ok: true };
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || "Gagal masuk";
+      const status = e?.response?.status;
+      const msg = status === 401 || status === 403
+        ? "Email atau password salah."
+        : e?.response?.data?.message || e?.message || "Gagal masuk";
       return { ok: false, message: msg };
     } finally {
       setLoading(false);

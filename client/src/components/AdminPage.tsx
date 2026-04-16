@@ -31,6 +31,7 @@ export function AdminPage() {
   const [recentReports, setRecentReports] = useState<any[]>([]);
   const [reportSearch, setReportSearch] = useState("");
   const [reportYearFilter, setReportYearFilter] = useState("all");
+  const [reportMonthFilter, setReportMonthFilter] = useState("all");
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const [viewUser, setViewUser] = useState<any | null>(null);
   const [editUser, setEditUser] = useState<any | null>(null);
@@ -191,6 +192,15 @@ export function AdminPage() {
     return m ? m[0] : "";
   };
 
+  const getReportMonth = (r: any) => {
+    const raw = String(r.bulanTahun || "").toUpperCase();
+    const months = ["JANUARI","FEBRUARI","MARET","APRIL","MEI","JUNI","JULI","AGUSTUS","SEPTEMBER","OKTOBER","NOVEMBER","DESEMBER"];
+    for (const m of months) { if (raw.includes(m)) return m; }
+    return "";
+  };
+
+  const MONTH_OPTIONS = ["JANUARI","FEBRUARI","MARET","APRIL","MEI","JUNI","JULI","AGUSTUS","SEPTEMBER","OKTOBER","NOVEMBER","DESEMBER"];
+
   const reportYearOptions = useMemo(() => {
     const years = new Set(recentReports.map(getReportYear).filter(Boolean));
     return Array.from(years).sort().reverse();
@@ -199,19 +209,19 @@ export function AdminPage() {
   const filteredReports = useMemo(() => {
     return recentReports.filter((r) => {
       if (reportYearFilter && reportYearFilter !== "all" && getReportYear(r) !== reportYearFilter) return false;
+      if (reportMonthFilter && reportMonthFilter !== "all" && getReportMonth(r) !== reportMonthFilter) return false;
       if (reportSearch) {
         const s = reportSearch.toLowerCase();
         const fields = [
           r.fileName, r.bulanTahun, r.kabupaten,
           r.puskesmas ?? r.worksheets?.[0]?.puskesmas,
-          r.desa ?? r.worksheets?.[0]?.desa,
           getSubmitterName(r),
         ];
         if (!fields.some((f) => String(f ?? "").toLowerCase().includes(s))) return false;
       }
       return true;
     });
-  }, [recentReports, reportSearch, reportYearFilter]);
+  }, [recentReports, reportSearch, reportYearFilter, reportMonthFilter]);
 
   if (!ready) return <div className="p-6 text-sm text-muted-foreground">Memuat data...</div>;
   if (!user || !ALLOWED_ROLES.has(String(user.role || "").toUpperCase())) return (
@@ -367,6 +377,17 @@ export function AdminPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={reportMonthFilter} onValueChange={setReportMonthFilter}>
+                <SelectTrigger className="h-9 w-40">
+                  <SelectValue placeholder="Semua bulan" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua bulan</SelectItem>
+                  {MONTH_OPTIONS.map((m) => (
+                    <SelectItem key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <Input
@@ -388,8 +409,6 @@ export function AdminPage() {
                   <TableHead className="text-xs">Bulan/Tahun</TableHead>
                   <TableHead className="text-xs">Kabupaten</TableHead>
                   <TableHead className="text-xs">Puskesmas</TableHead>
-                  <TableHead className="text-xs">Desa</TableHead>
-                  <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Pengirim</TableHead>
                   <TableHead className="text-xs">Waktu Upload</TableHead>
                   <TableHead className="text-xs">Aksi</TableHead>
@@ -398,7 +417,7 @@ export function AdminPage() {
               <TableBody>
                 {filteredReports.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-sm text-muted-foreground">
                       {recentReports.length === 0 ? "Belum ada laporan terunggah." : "Tidak ada laporan sesuai filter."}
                     </TableCell>
                   </TableRow>
@@ -407,10 +426,8 @@ export function AdminPage() {
                     <TableRow key={r._id} className="hover:bg-muted/50">
                       <TableCell className="text-sm font-medium max-w-[180px] truncate" title={r.fileName || "-"}>{r.fileName || "-"}</TableCell>
                       <TableCell className="text-sm">{r.bulanTahun || "-"}</TableCell>
-                      <TableCell className="text-sm">{r.kabupaten || "-"}</TableCell>
-                      <TableCell className="text-sm">{r.puskesmas || r.worksheets?.[0]?.puskesmas || "-"}</TableCell>
-                      <TableCell className="text-sm">{r.desa || r.worksheets?.[0]?.desa || "-"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-xs capitalize">{r.status || "diimpor"}</Badge></TableCell>
+                      <TableCell className="text-sm">{String(r.kabupaten || "-").replace(/^:\s*/, "")}</TableCell>
+                      <TableCell className="text-sm">{String(r.puskesmas || r.worksheets?.[0]?.puskesmas || "-").replace(/^:\s*/, "")}</TableCell>
                       <TableCell className="text-sm">{getSubmitterName(r)}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{r.submittedAt || r.createdAt ? new Date(r.submittedAt || r.createdAt).toLocaleString("id-ID") : "-"}</TableCell>
                       <TableCell>

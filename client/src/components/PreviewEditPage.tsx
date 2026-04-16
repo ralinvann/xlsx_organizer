@@ -528,10 +528,9 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
         <CardContent className="space-y-6">
           {/* Location Selection */}
           <div className="p-4 border rounded-lg bg-muted/30 space-y-4">
-            <h4 className="font-medium text-sm">Konfigurasi Lokasi</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Kabupaten Konfigurasi</label>
+                <label className="text-sm font-medium">Kabupaten</label>
                 <Select value={selectedKabupatenConfig} onValueChange={setSelectedKabupatenConfig}>
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih kabupaten..." />
@@ -700,7 +699,7 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
                             {isEditing ? (
                               (() => {
                                 const lower = k.toLowerCase();
-                                const isNum = lower.includes("umur") || typeof cellValue === "number";
+                                const isUmur = lower.includes("umur");
                                 if (isDateCol) {
                                   let inputValue = "";
                                   const edited = editedRows[String(row.id)]?.[k];
@@ -719,13 +718,18 @@ export function PreviewEditPage({ initialData = null, onDone, onCancel }: Previe
                                     />
                                   );
                                 }
-                                if (isNum) {
+                                if (isUmur) {
                                   return (
                                     <input
-                                      type="number"
+                                      type="text"
+                                      inputMode="numeric"
                                       className={`w-full border rounded px-2 py-1.5 text-sm ${isCellError ? "border-red-500 bg-red-100" : "border-primary/40"} focus:outline-none focus:ring-2 focus:ring-primary`}
                                       value={String(displayValue ?? "")}
-                                      onChange={(e) => handleCellChange(row.id, k, e.target.value ? Number(e.target.value) : null)}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        const num = Number(raw);
+                                        handleCellChange(row.id, k, raw === "" ? null : Number.isFinite(num) && /^\d+$/.test(raw.trim()) ? num : raw);
+                                      }}
                                     />
                                   );
                                 }
