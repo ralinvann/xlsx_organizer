@@ -2,10 +2,15 @@
 
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
+function ensureApiPath(base: string): string {
+  const trimmed = base.trim().replace(/\/+$/, "");
+  return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
+}
+
 function resolveBaseUrl(): string {
   const envBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (envBase && envBase.trim()) {
-    return envBase.trim();
+    return ensureApiPath(envBase);
   }
 
   const host = window.location.hostname;
